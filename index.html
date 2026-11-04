@@ -9,13 +9,234 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
-<body class="bg-slate-900 text-slate-100">
+<body class="bg-slate-900 text-slate-100 min-h-screen">
   <div id="root"></div>
 
-  <!-- Cargamos tu archivo finanzas_personales.tsx -->
-  <script type="text/babel" src="finanzas_personales.tsx"></script>
   <script type="text/babel">
-    // Renderizamos la aplicación en el navegador
+    const { useState, useEffect } = React;
+
+    function App() {
+      const [activeTab, setActiveTab] = useState('dashboard');
+      const [monto, setMonto] = useState('');
+      const [concepto, setConcepto] = useState('');
+      const [tipo, setTipo] = useState('Egreso');
+      const [cuenta, setCuenta] = useState('NU');
+      const [categoria, setCategoria] = useState('Alimentación');
+      const [distribucion, setDistribucion] = useState('50% Necesidad');
+
+      const [cuentas, setCuentas] = useState([
+        { id: 1, nombre: 'NU', saldo: 15000, tasa: 14.5 },
+        { id: 2, nombre: 'CETES', saldo: 25000, tasa: 11.0 },
+        { id: 3, nombre: 'STORI', saldo: 8000, tasa: 15.0 },
+        { id: 4, nombre: 'Mercado Pago', saldo: 5000, tasa: 10.0 },
+        { id: 5, nombre: 'BBVA', saldo: 12000, tasa: 0 }
+      ]);
+
+      const [transacciones, setTransacciones] = useState([
+        { id: 1, fecha: '2026-11-04', concepto: 'Supermercado', monto: 1250, tipo: 'Egreso', cuenta: 'BBVA', distribucion: '50% Necesidad' },
+        { id: 2, fecha: '2026-11-03', concepto: 'Rendimiento Nu', monto: 5.95, tipo: 'Ingreso', cuenta: 'NU', distribucion: '20% Ahorro/Inversión' }
+      ]);
+
+      const totalSaldo = cuentas.reduce((acc, c) => acc + c.saldo, 0);
+      const rendimientoDiarioEst = cuentas.reduce((acc, c) => acc + (c.saldo * (c.tasa / 100 / 365)), 0);
+
+      const handleAgregar = (e) => {
+        e.preventDefault();
+        if (!monto || !concepto) return;
+
+        const numMonto = parseFloat(monto);
+        const nuevaTransaccion = {
+          id: Date.now(),
+          fecha: new Date().toISOString().split('T')[0],
+          concepto,
+          monto: numMonto,
+          tipo,
+          cuenta,
+          distribucion
+        };
+
+        setTransacciones([nuevaTransaccion, ...transacciones]);
+
+        // Actualizar saldo de la cuenta
+        setCuentas(cuentas.map(c => {
+          if (c.nombre === cuenta) {
+            return {
+              ...c,
+              saldo: tipo === 'Ingreso' ? c.saldo + numMonto : c.saldo - numMonto
+            };
+          }
+          return c;
+        }));
+
+        setMonto('');
+        setConcepto('');
+        alert('¡Movimiento registrado con éxito!');
+      };
+
+      return (
+        <div class="max-w-md mx-auto p-4 pb-24">
+          {/* Header */}
+          <div class="flex justify-between items-center mb-6">
+            <div>
+              <h1 class="text-xl font-bold text-emerald-400">Mis Finanzas</h1>
+              <p class="text-xs text-slate-400">Control de Rendimientos y Gastos</p>
+            </div>
+            <div class="bg-slate-800 px-3 py-1 rounded-full text-xs font-semibold text-emerald-400 border border-emerald-500/30">
+              Pro 2026
+            </div>
+          </div>
+
+          {/* Nav Tabs */}
+          <div class="grid grid-cols-3 gap-2 bg-slate-800 p-1 rounded-xl mb-6 text-center text-sm">
+            <button 
+              onClick={() => setActiveTab('dashboard')} 
+              class={`py-2 rounded-lg font-medium transition ${activeTab === 'dashboard' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>
+              Resumen
+            </button>
+            <button 
+              onClick={() => setActiveTab('captura')} 
+              class={`py-2 rounded-lg font-medium transition ${activeTab === 'captura' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>
+              + Capturar
+            </button>
+            <button 
+              onClick={() => setActiveTab('cuentas')} 
+              class={`py-2 rounded-lg font-medium transition ${activeTab === 'cuentas' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>
+              Cuentas
+            </button>
+          </div>
+
+          {/* TAB 1: DASHBOARD */}
+          {activeTab === 'dashboard' && (
+            <div class="space-y-4">
+              <div class="bg-gradient-to-br from-slate-800 to-slate-800/80 p-5 rounded-2xl border border-slate-700/50 shadow-lg">
+                <span class="text-xs text-slate-400 font-medium uppercase tracking-wider">Saldo Total Acumulado</span>
+                <div class="text-3xl font-extrabold text-white mt-1">
+                  ${totalSaldo.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                </div>
+                <div class="mt-4 pt-3 border-t border-slate-700/50 flex justify-between items-center text-xs">
+                  <span class="text-slate-400">Rendimiento Estimado/Día:</span>
+                  <span class="text-emerald-400 font-bold">+${rendimientoDiarioEst.toFixed(2)} MXN</span>
+                </div>
+              </div>
+
+              {/* Movimientos Recientes */}
+              <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700/50">
+                <h2 class="text-sm font-bold text-slate-200 mb-3">Últimos Movimientos</h2>
+                <div class="space-y-3">
+                  {transacciones.map(t => (
+                    <div key={t.id} class="flex justify-between items-center text-sm p-2 rounded-lg bg-slate-900/50">
+                      <div>
+                        <div class="font-medium text-slate-200">{t.concepto}</div>
+                        <div class="text-xs text-slate-400">{t.cuenta} • {t.distribucion}</div>
+                      </div>
+                      <div class={`font-bold ${t.tipo === 'Ingreso' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {t.tipo === 'Ingreso' ? '+' : '-'}${t.monto.toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: CAPTURA DE MOVIMIENTOS */}
+          {activeTab === 'captura' && (
+            <form onSubmit={handleAgregar} class="bg-slate-800 p-5 rounded-2xl border border-slate-700/50 space-y-4">
+              <h2 class="text-base font-bold text-slate-200 mb-2">Registrar Nuevo Movimiento</h2>
+
+              <div>
+                <label class="block text-xs font-medium text-slate-400 mb-1">Monto ($)</label>
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  placeholder="0.00" 
+                  value={monto} 
+                  onChange={e => setMonto(e.target.value)}
+                  class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-lg font-bold text-emerald-400 focus:outline-none focus:border-emerald-500" 
+                  required 
+                />
+              </div>
+
+              <div>
+                <label class="block text-xs font-medium text-slate-400 mb-1">Concepto</label>
+                <input 
+                  type="text" 
+                  placeholder="Ej. Gasolina, Despensa" 
+                  value={concepto} 
+                  onChange={e => setConcepto(e.target.value)}
+                  class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" 
+                  required 
+                />
+              </div>
+
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-slate-400 mb-1">Tipo</label>
+                  <select 
+                    value={tipo} 
+                    onChange={e => setTipo(e.target.value)}
+                    class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
+                    <option value="Egreso">Egreso (-)</option>
+                    <option value="Ingreso">Ingreso (+)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-400 mb-1">Cuenta</label>
+                  <select 
+                    value={cuenta} 
+                    onChange={e => setCuenta(e.target.value)}
+                    class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
+                    {cuentas.map(c => (
+                      <option key={c.id} value={c.nombre}>{c.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-medium text-slate-400 mb-1">Distribución (Regla 50/30/20)</label>
+                <select 
+                  value={distribucion} 
+                  onChange={e => setDistribucion(e.target.value)}
+                  class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
+                  <option value="50% Necesidad">50% Necesidad (Fijo)</option>
+                  <option value="30% Deseo">30% Deseo (Gusto/Variable)</option>
+                  <option value="20% Ahorro/Inversión">20% Ahorro / Inversión</option>
+                </select>
+              </div>
+
+              <button 
+                type="submit" 
+                class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl shadow-lg transition mt-4">
+                Guardar Movimiento
+              </button>
+            </form>
+          )}
+
+          {/* TAB 3: CUENTAS Y TASAS */}
+          {activeTab === 'cuentas' && (
+            <div class="space-y-3">
+              <h2 class="text-sm font-bold text-slate-200">Saldos y Tasas de Rendimiento</h2>
+              {cuentas.map(c => (
+                <div key={c.id} class="bg-slate-800 p-4 rounded-xl border border-slate-700/50 flex justify-between items-center">
+                  <div>
+                    <div class="font-bold text-slate-200">{c.nombre}</div>
+                    <div class="text-xs text-emerald-400 font-medium">Tasa Anual: {c.tasa}%</div>
+                  </div>
+                  <div class="text-right">
+                    <div class="font-bold text-white">${c.saldo.toLocaleString()}</div>
+                    <div class="text-xs text-slate-400">
+                      +${(c.saldo * (c.tasa / 100 / 365)).toFixed(2)}/día
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
   </script>
