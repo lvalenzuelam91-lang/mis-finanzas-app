@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mis Finanzas Personales</title>
+  <title>Mis Finanzas Personales 2026</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -16,221 +16,316 @@
     const { useState, useEffect } = React;
 
     function App() {
-      const [activeTab, setActiveTab] = useState('dashboard');
+      const [activeTab, setActiveTab] = useState('resumen');
+
+      // 1. ESTADO DE CUENTAS (Carga local o valores por defecto)
+      const [cuentas, setCuentas] = useState(() => {
+        const saved = localStorage.getItem('finanzas_cuentas');
+        return saved ? JSON.parse(saved) : [
+          { id: 1, nombre: 'NU', saldoInicial: 15000, tasa: 14.50 },
+          { id: 2, nombre: 'CETES', saldoInicial: 25000, tasa: 11.00 },
+          { id: 3, nombre: 'STORI', saldoInicial: 8000, tasa: 15.00 },
+          { id: 4, nombre: 'Mercado Pago', saldoInicial: 5000, tasa: 10.00 },
+          { id: 5, nombre: 'BBVA (Nomina)', saldoInicial: 12000, tasa: 0.00 }
+        ];
+      });
+
+      // 2. ESTADO DE TRANSACCIONES (Hoja de Captura)
+      const [transacciones, setTransacciones] = useState(() => {
+        const saved = localStorage.getItem('finanzas_transacciones');
+        return saved ? JSON.parse(saved) : [
+          { id: 1, fecha: '2026-11-04', concepto: 'Supermercado', monto: 1250, tipo: 'Egreso', cuenta: 'BBVA (Nomina)', distribucion: '50% Necesidad' },
+          { id: 2, fecha: '2026-11-03', concepto: 'Gasolina', monto: 500, tipo: 'Egreso', cuenta: 'NU', distribucion: '50% Necesidad' }
+        ];
+      });
+
+      // Formulario Captura
       const [monto, setMonto] = useState('');
       const [concepto, setConcepto] = useState('');
       const [tipo, setTipo] = useState('Egreso');
-      const [cuenta, setCuenta] = useState('NU');
-      const [categoria, setCategoria] = useState('Alimentación');
+      const [cuentaSel, setCuentaSel] = useState('');
       const [distribucion, setDistribucion] = useState('50% Necesidad');
 
-      const [cuentas, setCuentas] = useState([
-        { id: 1, nombre: 'NU', saldo: 15000, tasa: 14.5 },
-        { id: 2, nombre: 'CETES', saldo: 25000, tasa: 11.0 },
-        { id: 3, nombre: 'STORI', saldo: 8000, tasa: 15.0 },
-        { id: 4, nombre: 'Mercado Pago', saldo: 5000, tasa: 10.0 },
-        { id: 5, nombre: 'BBVA', saldo: 12000, tasa: 0 }
-      ]);
+      // Formulario Nueva Cuenta
+      const [nuevaCuentaNombre, setNuevaCuentaNombre] = useState('');
+      const [nuevaCuentaSaldo, setNuevaCuentaSaldo] = useState('');
+      const [nuevaCuentaTasa, setNuevaCuentaTasa] = useState('');
 
-      const [transacciones, setTransacciones] = useState([
-        { id: 1, fecha: '2026-11-04', concepto: 'Supermercado', monto: 1250, tipo: 'Egreso', cuenta: 'BBVA', distribucion: '50% Necesidad' },
-        { id: 2, fecha: '2026-11-03', concepto: 'Rendimiento Nu', monto: 5.95, tipo: 'Ingreso', cuenta: 'NU', distribucion: '20% Ahorro/Inversión' }
-      ]);
+      // Guardar en localStorage
+      useEffect(() => {
+        localStorage.setItem('finanzas_cuentas', JSON.stringify(cuentas));
+      }, [cuentas]);
 
-      const totalSaldo = cuentas.reduce((acc, c) => acc + c.saldo, 0);
-      const rendimientoDiarioEst = cuentas.reduce((acc, c) => acc + (c.saldo * (c.tasa / 100 / 365)), 0);
+      useEffect(() => {
+        localStorage.setItem('finanzas_transacciones', JSON.stringify(transacciones));
+      }, [transacciones]);
 
-      const handleAgregar = (e) => {
+      useEffect(() => {
+        if (cuentas.length > 0 && !cuentaSel) {
+          setCuentaSel(cuentas[0].nombre);
+        }
+      }, [cuentas]);
+
+      // Cálculos de Saldos Actuales
+      const obtenerSaldoCuenta = (nombreCuenta) => {
+        const c = cuentas.find(item => item.nombre === nombreCuenta);
+        if (!c) return 0;
+        const movs = transacciones.filter(t => t.cuenta === nombreCuenta);
+        const ingresos = movs.filter(t => t.tipo === 'Ingreso').reduce((a, b) => a + b.monto, 0);
+        const egresos = movs.filter(t => t.tipo === 'Egreso').reduce((a, b) => a + b.monto, 0);
+        return c.saldoInicial + ingresos - egresos;
+      };
+
+      const totalSaldoCalculado = cuentas.reduce((acc, c) => acc + obtenerSaldoCuenta(c.nombre), 0);
+      const rendimientoDiarioTotal = cuentas.reduce((acc, c) => {
+        const saldoActual = obtenerSaldoCuenta(c.nombre);
+        return acc + (saldoActual * (c.tasa / 100 / 365));
+      }, 0);
+
+      // --- ACCIONES ---
+
+      // Agregar Movimiento
+      const handleAgregarMovimiento = (e) => {
         e.preventDefault();
         if (!monto || !concepto) return;
 
-        const numMonto = parseFloat(monto);
-        const nuevaTransaccion = {
+        const nuevo = {
           id: Date.now(),
           fecha: new Date().toISOString().split('T')[0],
           concepto,
-          monto: numMonto,
+          monto: parseFloat(monto),
           tipo,
-          cuenta,
+          cuenta: cuentaSel || cuentas[0]?.nombre,
           distribucion
         };
 
-        setTransacciones([nuevaTransaccion, ...transacciones]);
-
-        // Actualizar saldo de la cuenta
-        setCuentas(cuentas.map(c => {
-          if (c.nombre === cuenta) {
-            return {
-              ...c,
-              saldo: tipo === 'Ingreso' ? c.saldo + numMonto : c.saldo - numMonto
-            };
-          }
-          return c;
-        }));
-
+        setTransacciones([nuevo, ...transacciones]);
         setMonto('');
         setConcepto('');
-        alert('¡Movimiento registrado con éxito!');
+        setActiveTab('resumen');
+      };
+
+      // Eliminar Movimiento
+      const handleEliminarMovimiento = (id) => {
+        if (confirm('¿Deseas eliminar este registro?')) {
+          setTransacciones(transacciones.filter(t => t.id !== id));
+        }
+      };
+
+      // Agregar Nueva Cuenta
+      const handleAgregarCuenta = (e) => {
+        e.preventDefault();
+        if (!nuevaCuentaNombre) return;
+
+        const nueva = {
+          id: Date.now(),
+          nombre: nuevaCuentaNombre.trim(),
+          saldoInicial: parseFloat(nuevaCuentaSaldo) || 0,
+          tasa: parseFloat(nuevaCuentaTasa) || 0
+        };
+
+        setCuentas([...cuentas, nueva]);
+        setNuevaCuentaNombre('');
+        setNuevaCuentaSaldo('');
+        setNuevaCuentaTasa('');
+      };
+
+      // Editar Tasa de Cuenta
+      const handleEditarTasa = (id, nuevaTasa) => {
+        setCuentas(cuentas.map(c => c.id === id ? { ...c, tasa: parseFloat(nuevaTasa) || 0 } : c));
+      };
+
+      // Eliminar Cuenta
+      const handleEliminarCuenta = (id) => {
+        if (confirm('¿Eliminar esta cuenta? Se borrará del listado.')) {
+          setCuentas(cuentas.filter(c => c.id !== id));
+        }
       };
 
       return (
         <div class="max-w-md mx-auto p-4 pb-24">
           {/* Header */}
-          <div class="flex justify-between items-center mb-6">
+          <div class="flex justify-between items-center mb-5">
             <div>
-              <h1 class="text-xl font-bold text-emerald-400">Mis Finanzas</h1>
-              <p class="text-xs text-slate-400">Control de Rendimientos y Gastos</p>
+              <h1 class="text-xl font-bold text-emerald-400">Finanzas Personales</h1>
+              <p class="text-xs text-slate-400">Control de Saldos y Rendimientos</p>
             </div>
-            <div class="bg-slate-800 px-3 py-1 rounded-full text-xs font-semibold text-emerald-400 border border-emerald-500/30">
-              Pro 2026
+            <div class="text-right">
+              <span class="text-xs text-slate-400">Resumen 2026</span>
             </div>
           </div>
 
-          {/* Nav Tabs */}
-          <div class="grid grid-cols-3 gap-2 bg-slate-800 p-1 rounded-xl mb-6 text-center text-sm">
-            <button 
-              onClick={() => setActiveTab('dashboard')} 
-              class={`py-2 rounded-lg font-medium transition ${activeTab === 'dashboard' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>
-              Resumen
-            </button>
-            <button 
-              onClick={() => setActiveTab('captura')} 
-              class={`py-2 rounded-lg font-medium transition ${activeTab === 'captura' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>
-              + Capturar
-            </button>
-            <button 
-              onClick={() => setActiveTab('cuentas')} 
-              class={`py-2 rounded-lg font-medium transition ${activeTab === 'cuentas' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>
-              Cuentas
-            </button>
+          {/* Menú Superior Navegación */}
+          <div class="grid grid-cols-4 gap-1 bg-slate-800 p-1 rounded-xl mb-5 text-center text-xs font-semibold">
+            <button onClick={() => setActiveTab('resumen')} class={`py-2 rounded-lg ${activeTab === 'resumen' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>Resumen</button>
+            <button onClick={() => setActiveTab('captura')} class={`py-2 rounded-lg ${activeTab === 'captura' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>+ Captura</button>
+            <button onClick={() => setActiveTab('semanal')} class={`py-2 rounded-lg ${activeTab === 'semanal' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>Semanal</button>
+            <button onClick={() => setActiveTab('cuentas')} class={`py-2 rounded-lg ${activeTab === 'cuentas' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>Cuentas</button>
           </div>
 
-          {/* TAB 1: DASHBOARD */}
-          {activeTab === 'dashboard' && (
+          {/* TAB 1: RESUMEN GENERAL */}
+          {activeTab === 'resumen' && (
             <div class="space-y-4">
-              <div class="bg-gradient-to-br from-slate-800 to-slate-800/80 p-5 rounded-2xl border border-slate-700/50 shadow-lg">
-                <span class="text-xs text-slate-400 font-medium uppercase tracking-wider">Saldo Total Acumulado</span>
+              <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 shadow-md">
+                <span class="text-xs text-slate-400 font-medium uppercase">Saldo Total Acumulado</span>
                 <div class="text-3xl font-extrabold text-white mt-1">
-                  ${totalSaldo.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                  ${totalSaldoCalculado.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                 </div>
-                <div class="mt-4 pt-3 border-t border-slate-700/50 flex justify-between items-center text-xs">
+                <div class="mt-3 pt-3 border-t border-slate-700 flex justify-between items-center text-xs">
                   <span class="text-slate-400">Rendimiento Estimado/Día:</span>
-                  <span class="text-emerald-400 font-bold">+${rendimientoDiarioEst.toFixed(2)} MXN</span>
+                  <span class="text-emerald-400 font-bold">+${rendimientoDiarioTotal.toFixed(2)} MXN</span>
                 </div>
               </div>
 
-              {/* Movimientos Recientes */}
-              <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700/50">
-                <h2 class="text-sm font-bold text-slate-200 mb-3">Últimos Movimientos</h2>
-                <div class="space-y-3">
-                  {transacciones.map(t => (
-                    <div key={t.id} class="flex justify-between items-center text-sm p-2 rounded-lg bg-slate-900/50">
-                      <div>
-                        <div class="font-medium text-slate-200">{t.concepto}</div>
-                        <div class="text-xs text-slate-400">{t.cuenta} • {t.distribucion}</div>
+              {/* Lista de Cuentas y Saldos Rápidos */}
+              <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700">
+                <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Saldos por Institución</h2>
+                <div class="space-y-2">
+                  {cuentas.map(c => {
+                    const saldoActual = obtenerSaldoCuenta(c.nombre);
+                    return (
+                      <div key={c.id} class="flex justify-between items-center text-sm p-2 rounded-lg bg-slate-900/60">
+                        <div>
+                          <span class="font-semibold text-slate-200">{c.nombre}</span>
+                          {c.tasa > 0 && <span class="text-xs text-emerald-400 ml-2">({c.tasa}%)</span>}
+                        </div>
+                        <span class="font-bold text-white">${saldoActual.toLocaleString('es-MX', {minimumFractionDigits: 2})}</span>
                       </div>
-                      <div class={`font-bold ${t.tipo === 'Ingreso' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {t.tipo === 'Ingreso' ? '+' : '-'}${t.monto.toLocaleString()}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
+              </div>
+
+              {/* Movimientos Recientes con opción de Borrar */}
+              <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700">
+                <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Hoja de Captura (Últimos Movimientos)</h2>
+                {transacciones.length === 0 ? (
+                  <p class="text-xs text-slate-500 text-center py-4">No hay movimientos registrados.</p>
+                ) : (
+                  <div class="space-y-2">
+                    {transacciones.map(t => (
+                      <div key={t.id} class="flex justify-between items-center text-sm p-2.5 rounded-lg bg-slate-900/60 border border-slate-800">
+                        <div class="flex-1 pr-2">
+                          <div class="font-semibold text-slate-200">{t.concepto}</div>
+                          <div class="text-xs text-slate-400">{t.cuenta} • {t.distribucion} • {t.fecha}</div>
+                        </div>
+                        <div class="flex items-center space-x-3">
+                          <span class={`font-bold ${t.tipo === 'Ingreso' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {t.tipo === 'Ingreso' ? '+' : '-'}${t.monto.toLocaleString()}
+                          </span>
+                          <button onClick={() => handleEliminarMovimiento(t.id)} class="text-slate-500 hover:text-rose-400 text-xs">✕</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {/* TAB 2: CAPTURA DE MOVIMIENTOS */}
+          {/* TAB 2: CAPTURA DE GASTO / INGRESO */}
           {activeTab === 'captura' && (
-            <form onSubmit={handleAgregar} class="bg-slate-800 p-5 rounded-2xl border border-slate-700/50 space-y-4">
-              <h2 class="text-base font-bold text-slate-200 mb-2">Registrar Nuevo Movimiento</h2>
+            <form onSubmit={handleAgregarMovimiento} class="bg-slate-800 p-5 rounded-2xl border border-slate-700 space-y-4">
+              <h2 class="text-sm font-bold text-slate-200">Registrar en Hoja de Captura</h2>
 
               <div>
-                <label class="block text-xs font-medium text-slate-400 mb-1">Monto ($)</label>
-                <input 
-                  type="number" 
-                  step="0.01" 
-                  placeholder="0.00" 
-                  value={monto} 
-                  onChange={e => setMonto(e.target.value)}
-                  class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-lg font-bold text-emerald-400 focus:outline-none focus:border-emerald-500" 
-                  required 
-                />
+                <label class="block text-xs text-slate-400 mb-1">Monto ($)</label>
+                <input type="number" step="0.01" placeholder="0.00" value={monto} onChange={e => setMonto(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-lg font-bold text-emerald-400 focus:outline-none" required />
               </div>
 
               <div>
-                <label class="block text-xs font-medium text-slate-400 mb-1">Concepto</label>
-                <input 
-                  type="text" 
-                  placeholder="Ej. Gasolina, Despensa" 
-                  value={concepto} 
-                  onChange={e => setConcepto(e.target.value)}
-                  class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" 
-                  required 
-                />
+                <label class="block text-xs text-slate-400 mb-1">Concepto / Descripción</label>
+                <input type="text" placeholder="Ej. Despensa, Gasolina, Rendimiento" value={concepto} onChange={e => setConcepto(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none" required />
               </div>
 
               <div class="grid grid-cols-2 gap-3">
                 <div>
-                  <label class="block text-xs font-medium text-slate-400 mb-1">Tipo</label>
-                  <select 
-                    value={tipo} 
-                    onChange={e => setTipo(e.target.value)}
-                    class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
+                  <label class="block text-xs text-slate-400 mb-1">Tipo de Movimiento</label>
+                  <select value={tipo} onChange={e => setTipo(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
                     <option value="Egreso">Egreso (-)</option>
                     <option value="Ingreso">Ingreso (+)</option>
                   </select>
                 </div>
                 <div>
-                  <label class="block text-xs font-medium text-slate-400 mb-1">Cuenta</label>
-                  <select 
-                    value={cuenta} 
-                    onChange={e => setCuenta(e.target.value)}
-                    class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
-                    {cuentas.map(c => (
-                      <option key={c.id} value={c.nombre}>{c.nombre}</option>
-                    ))}
+                  <label class="block text-xs text-slate-400 mb-1">Cuenta Destino/Origen</label>
+                  <select value={cuentaSel} onChange={e => setCuentaSel(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
+                    {cuentas.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
                   </select>
                 </div>
               </div>
 
               <div>
-                <label class="block text-xs font-medium text-slate-400 mb-1">Distribución (Regla 50/30/20)</label>
-                <select 
-                  value={distribucion} 
-                  onChange={e => setDistribucion(e.target.value)}
-                  class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
+                <label class="block text-xs text-slate-400 mb-1">Distribución 50/30/20</label>
+                <select value={distribucion} onChange={e => setDistribucion(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
                   <option value="50% Necesidad">50% Necesidad (Fijo)</option>
                   <option value="30% Deseo">30% Deseo (Gusto/Variable)</option>
                   <option value="20% Ahorro/Inversión">20% Ahorro / Inversión</option>
                 </select>
               </div>
 
-              <button 
-                type="submit" 
-                class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl shadow-lg transition mt-4">
-                Guardar Movimiento
+              <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl transition mt-2">
+                Guardar en Captura
               </button>
             </form>
           )}
 
-          {/* TAB 3: CUENTAS Y TASAS */}
-          {activeTab === 'cuentas' && (
-            <div class="space-y-3">
-              <h2 class="text-sm font-bold text-slate-200">Saldos y Tasas de Rendimiento</h2>
-              {cuentas.map(c => (
-                <div key={c.id} class="bg-slate-800 p-4 rounded-xl border border-slate-700/50 flex justify-between items-center">
-                  <div>
-                    <div class="font-bold text-slate-200">{c.nombre}</div>
-                    <div class="text-xs text-emerald-400 font-medium">Tasa Anual: {c.tasa}%</div>
+          {/* TAB 3: GASTO SEMANAL */}
+          {activeTab === 'semanal' && (
+            <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 space-y-4">
+              <h2 class="text-sm font-bold text-slate-200">Control de Gasto Semanal</h2>
+              <p class="text-xs text-slate-400">Egresos registrados en los últimos 7 días:</p>
+              <div class="text-2xl font-bold text-rose-400">
+                -${transacciones.filter(t => t.tipo === 'Egreso').reduce((a, b) => a + b.monto, 0).toLocaleString('es-MX', {minimumFractionDigits: 2})}
+              </div>
+              <div class="space-y-2 pt-2">
+                {transacciones.filter(t => t.tipo === 'Egreso').map(t => (
+                  <div key={t.id} class="flex justify-between items-center text-xs p-2 bg-slate-900/50 rounded-lg">
+                    <span>{t.concepto} ({t.cuenta})</span>
+                    <span class="font-bold text-rose-400">-${t.monto}</span>
                   </div>
-                  <div class="text-right">
-                    <div class="font-bold text-white">${c.saldo.toLocaleString()}</div>
-                    <div class="text-xs text-slate-400">
-                      +${(c.saldo * (c.tasa / 100 / 365)).toFixed(2)}/día
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: ADMINISTRACIÓN DE CUENTAS (BASE DE DATOS) */}
+          {activeTab === 'cuentas' && (
+            <div class="space-y-4">
+              {/* Agregar Cuenta */}
+              <form onSubmit={handleAgregarCuenta} class="bg-slate-800 p-4 rounded-2xl border border-slate-700 space-y-3">
+                <h3 class="text-xs font-bold text-emerald-400 uppercase">Agregar Nueva Cuenta</h3>
+                <input type="text" placeholder="Nombre de la cuenta (ej. Klar, Didi)" value={nuevaCuentaNombre} onChange={e => setNuevaCuentaNombre(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200" required />
+                <div class="grid grid-cols-2 gap-2">
+                  <input type="number" placeholder="Saldo Inicial ($)" value={nuevaCuentaSaldo} onChange={e => setNuevaCuentaSaldo(e.target.value)} class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200" />
+                  <input type="number" step="0.01" placeholder="Tasa Anual (%)" value={nuevaCuentaTasa} onChange={e => setNuevaCuentaTasa(e.target.value)} class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200" />
+                </div>
+                <button type="submit" class="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 rounded-lg text-xs">
+                  + Crear Cuenta
+                </button>
+              </form>
+
+              {/* Lista y Edición de Cuentas */}
+              <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 space-y-3">
+                <h3 class="text-xs font-bold text-slate-400 uppercase">Editar Cuentas Existentes y Tasas</h3>
+                {cuentas.map(c => (
+                  <div key={c.id} class="p-3 bg-slate-900/60 rounded-xl space-y-2 border border-slate-800">
+                    <div class="flex justify-between items-center text-sm font-bold text-white">
+                      <span>{c.nombre}</span>
+                      <button onClick={() => handleEliminarCuenta(c.id)} class="text-rose-400 text-xs hover:underline">Eliminar</button>
+                    </div>
+                    <div class="flex items-center justify-between text-xs text-slate-400">
+                      <span>Tasa Anual (%):</span>
+                      <input 
+                        type="number" 
+                        step="0.01" 
+                        value={c.tasa} 
+                        onChange={e => handleEditarTasa(c.id, e.target.value)}
+                        class="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-right text-emerald-400 font-bold"
+                      />
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           )}
         </div>
