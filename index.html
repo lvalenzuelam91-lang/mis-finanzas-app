@@ -18,7 +18,7 @@
     function App() {
       const [activeTab, setActiveTab] = useState('resumen');
 
-      // 1. ESTADO DE CUENTAS (Débito + Crédito)
+      // 1. ESTADO DE CUENTAS
       const [cuentas, setCuentas] = useState(() => {
         const saved = localStorage.getItem('finanzas_cuentas');
         if (saved) {
@@ -44,10 +44,15 @@
         return saved ? JSON.parse(saved) : [];
       });
 
-      // Formulario Captura Estándar
+      // Última fecha de capitalización aplicada
+      const [ultimaCapitalizacion, setUltimaCapitalizacion] = useState(() => {
+        return localStorage.getItem('finanzas_ultima_cap') || new Date().toISOString().split('T')[0];
+      });
+
+      // Formulario Captura
       const [monto, setMonto] = useState('');
       const [concepto, setConcepto] = useState('');
-      const [tipoMov, setTipoMov] = useState('Egreso'); // Egreso, Ingreso, Traspaso
+      const [tipoMov, setTipoMov] = useState('Egreso');
       const [cuentaSel, setCuentaSel] = useState('');
       const [cuentaDestinoSel, setCuentaDestinoSel] = useState('');
       const [distribucion, setDistribucion] = useState('50% Necesidad');
@@ -59,7 +64,7 @@
       const [nuevaCuentaTasa, setNuevaCuentaTasa] = useState('');
       const [nuevaCuentaLimite, setNuevaCuentaLimite] = useState('');
 
-      // Guardar en localStorage
+      // Guardar estados en localStorage
       useEffect(() => {
         localStorage.setItem('finanzas_cuentas', JSON.stringify(cuentas));
       }, [cuentas]);
@@ -69,13 +74,17 @@
       }, [transacciones]);
 
       useEffect(() => {
+        localStorage.setItem('finanzas_ultima_cap', ultimaCapitalizacion);
+      }, [ultimaCapitalizacion]);
+
+      useEffect(() => {
         if (cuentas.length > 0) {
           if (!cuentaSel) setCuentaSel(cuentas[0].nombre);
           if (!cuentaDestinoSel) setCuentaDestinoSel(cuentas[1]?.nombre || cuentas[0].nombre);
         }
       }, [cuentas]);
 
-      // --- CÁLCULOS DE SALDOS ---
+      // --- OBTENER SALDO INDIVIDUAL ---
       const obtenerSaldoCuenta = (nombreCuenta) => {
         const c = cuentas.find(item => item.nombre === nombreCuenta);
         if (!c) return 0;
@@ -84,21 +93,96 @@
         const egresos = movs.filter(t => t.tipo === 'Egreso').reduce((a, b) => a + b.monto, 0);
 
         if (c.tipoCuenta === 'Credito') {
-          // En crédito: deuda inicial + compras (egresos) - pagos (ingresos)
           return c.saldoInicial + egresos - ingresos;
         } else {
-          // En débito: saldo inicial + ingresos - egresos
           return c.saldoInicial + ingresos - egresos;
         }
       };
 
+      // --- MOTOR AUTOMÁTICO DE CAPITALIZACIÓN DIARIA ---
+      const aplicarCapitalizacionDiaria = () => {
+        const hoy = new Date().toISOString().split('T')[0];
+        if (ultimaCapitalizacion === hoy) return;
+
+        const fechaUltima = new Date(ultimaCapitalizacion);
+        const fechaActual = new Date(hoy);
+        const diferenciaDias = Math.floor((fechaActual - fechaUltima) / (1000 * 60 * 60 * 24));
+
+        if (diferenciaDias <= 0) return;
+
+        const nuevosMovimientos = [];
+        let timestamp = Date.now();
+
+        cuentas.filter(c => c.tipoCuenta === 'Debito' && c.tasa > 0).forEach(c => {
+          let saldoActual = obtenerSaldoCuenta(c.nombre);
+          
+          for (let i = 1; i <= diferenciaDias; i++) {
+            const fechaCalculo = new Date(fechaUltima);
+            fechaCalculo.setDate(fechaCalculo.getDate() + i);
+            const fechaStr = fechaCalculo.toISOString().split('T')[0];
+
+            const rendimiento = parseFloat((saldoActual * (c.tasa / 100 / 365)).toFixed(2));
+            if (rendimiento > 0) {
+              nuevosMovimientos.push({
+                id: timestamp++,
+                fecha: fechaStr,
+                concepto: `Rendimiento Diario (${c.tasa}%)`,
+                monto: rendimiento,
+                tipo: 'Ingreso',
+                cuenta: c.nombre,
+                distribucion: '20% Ahorro/Inversión'
+              });
+              saldoActual += rendimiento;
+            }
+          }
+        });
+
+        if (nuevosMovimientos.length > 0) {
+          setTransacciones(prev => [...nuevosMovimientos, ...prev]);
+        }
+        setUltimaCapitalizacion(hoy);
+      };
+
+      useEffect(() => {
+        aplicarCapitalizacionDiaria();
+      }, []);
+
+      const handleForzarCapitalizacionHoy = () => {
+        const hoy = new Date().toISOString().split('T')[0];
+        const nuevosMovimientos = [];
+        let timestamp = Date.now();
+
+        cuentas.filter(c => c.tipoCuenta === 'Debito' && c.tasa > 0).forEach(c => {
+          const saldoActual = obtenerSaldoCuenta(c.nombre);
+          const rendimiento = parseFloat((saldoActual * (c.tasa / 100 / 365)).toFixed(2));
+          if (rendimiento > 0) {
+            nuevosMovimientos.push({
+              id: timestamp++,
+              fecha: hoy,
+              concepto: `Rendimiento Diario (${c.tasa}%)`,
+              monto: rendimiento,
+              tipo: 'Ingreso',
+              cuenta: c.nombre,
+              distribucion: '20% Ahorro/Inversión'
+            });
+          }
+        });
+
+        if (nuevosMovimientos.length > 0) {
+          setTransacciones(prev => [...nuevosMovimientos, ...prev]);
+          setUltimaCapitalizacion(hoy);
+          alert('¡Rendimientos de hoy abonados con éxito a tus cuentas!');
+        } else {
+          alert('No hay rendimientos por aplicar.');
+        }
+      };
+
+      // Totales
       const cuentasDebito = cuentas.filter(c => c.tipoCuenta !== 'Credito');
       const cuentasCredito = cuentas.filter(c => c.tipoCuenta === 'Credito');
 
       const totalSaldoDebito = cuentasDebito.reduce((acc, c) => acc + obtenerSaldoCuenta(c.nombre), 0);
       const totalDeudaCredito = cuentasCredito.reduce((acc, c) => acc + obtenerSaldoCuenta(c.nombre), 0);
-      
-      // Dinero Real Neto
       const patrimonioNetoReal = totalSaldoDebito - totalDeudaCredito;
 
       const totalLimiteCredito = cuentasCredito.reduce((acc, c) => acc + c.limiteCredito, 0);
@@ -109,7 +193,7 @@
         return acc + (saldoActual > 0 ? (saldoActual * (c.tasa / 100 / 365)) : 0);
       }, 0);
 
-      // --- ACCIONES ---
+      // ACCIONES
       const handleAgregarMovimiento = (e) => {
         e.preventDefault();
         const numMonto = parseFloat(monto);
@@ -125,7 +209,6 @@
 
           const desc = concepto.trim() ? concepto.trim() : `Traspaso: ${cuentaSel} ➔ ${cuentaDestinoSel}`;
 
-          // Movimiento 1: Salida de origen (Egreso)
           const movEgreso = {
             id: Date.now(),
             fecha: fechaHoy,
@@ -136,7 +219,6 @@
             distribucion: 'Traspaso entre cuentas'
           };
 
-          // Movimiento 2: Entrada a destino (Ingreso)
           const movIngreso = {
             id: Date.now() + 1,
             fecha: fechaHoy,
@@ -227,7 +309,7 @@
           {/* TAB 1: RESUMEN GENERAL */}
           {activeTab === 'resumen' && (
             <div class="space-y-4">
-              {/* Tarjeta de Saldos Totales y Patrimonio Neto */}
+              {/* Tarjeta de Saldos Totales */}
               <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 shadow-md space-y-3">
                 <div>
                   <span class="text-xs text-slate-400 font-medium uppercase tracking-wider">Patrimonio Neto Real (Débito - Deuda)</span>
@@ -256,6 +338,12 @@
                   <span class="text-slate-400">Rendimiento Estimado/Día:</span>
                   <span class="text-emerald-400 font-bold">+${rendimientoDiarioTotal.toFixed(2)} MXN</span>
                 </div>
+
+                <button 
+                  onClick={handleForzarCapitalizacionHoy}
+                  class="w-full mt-2 bg-slate-700 hover:bg-slate-600 border border-emerald-500/30 text-emerald-300 font-bold py-2 rounded-xl text-xs flex justify-center items-center gap-1 transition">
+                  ⚡ Capitalizar Rendimientos de Hoy
+                </button>
               </div>
 
               {/* Cuentas de Débito */}
@@ -264,11 +352,13 @@
                 <div class="space-y-2">
                   {cuentasDebito.map(c => {
                     const saldoActual = obtenerSaldoCuenta(c.nombre);
+                    const rendDia = c.tasa > 0 ? (saldoActual * (c.tasa / 100 / 365)) : 0;
                     return (
                       <div key={c.id} class="flex justify-between items-center text-sm p-2 rounded-lg bg-slate-900/60">
                         <div>
                           <span class="font-semibold text-slate-200">{c.nombre}</span>
                           {c.tasa > 0 && <span class="text-xs text-emerald-400 ml-2">({c.tasa}%)</span>}
+                          {rendDia > 0 && <div class="text-[10px] text-slate-400">+${rendDia.toFixed(2)}/día</div>}
                         </div>
                         <span class="font-bold text-white">${saldoActual.toLocaleString('es-MX', {minimumFractionDigits: 2})}</span>
                       </div>
