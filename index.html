@@ -18,7 +18,7 @@
     function App() {
       const [activeTab, setActiveTab] = useState('resumen');
 
-      // 1. ESTADO DE CUENTAS (Con historial de tasas)
+      // 1. ESTADO DE CUENTAS
       const [cuentas, setCuentas] = useState(() => {
         const saved = localStorage.getItem('finanzas_cuentas');
         if (saved) {
@@ -50,7 +50,7 @@
         return localStorage.getItem('finanzas_ultima_cap') || '2026-11-04';
       });
 
-      // Estados para Formularios
+      // Formularios
       const [monto, setMonto] = useState('');
       const [concepto, setConcepto] = useState('');
       const [tipoMov, setTipoMov] = useState('Egreso');
@@ -64,7 +64,6 @@
       const [nuevaCuentaTasa, setNuevaCuentaTasa] = useState('');
       const [nuevaCuentaLimite, setNuevaCuentaLimite] = useState('');
 
-      // Formulario para Agregar Cambio de Tasa Histórico
       const [cuentaTasaEditId, setCuentaTasaEditId] = useState(null);
       const [nuevaTasaFecha, setNuevaTasaFecha] = useState(new Date().toISOString().split('T')[0]);
       const [nuevaTasaValor, setNuevaTasaValor] = useState('');
@@ -89,7 +88,32 @@
         }
       }, [cuentas]);
 
-      // --- OBTENER TASA VIGENTE PARA UNA FECHA ESPECÍFICA ---
+      // --- DEPURACIÓN AUTOMÁTICA DE REGISTROS DE RENDIMIENTO DUPLICADOS ---
+      useEffect(() => {
+        if (transacciones.length === 0) return;
+
+        const vistas = new Set();
+        let huboDuplicados = false;
+
+        const transaccionesLimpias = transacciones.filter(t => {
+          const esRendimiento = t.concepto && t.concepto.includes('Rendimiento Diario');
+          if (esRendimiento) {
+            const claveUnica = `${t.cuenta}_${t.fecha}`;
+            if (vistas.has(claveUnica)) {
+              huboDuplicados = true;
+              return false; // Descartar duplicado
+            }
+            vistas.add(claveUnica);
+          }
+          return true;
+        });
+
+        if (huboDuplicados) {
+          setTransacciones(transaccionesLimpias);
+        }
+      }, []);
+
+      // Auxiliares
       const obtenerTasaVigente = (cuenta, fechaStr) => {
         if (!cuenta.historialTasas || cuenta.historialTasas.length === 0) return cuenta.tasa || 0;
         const ordenadas = [...cuenta.historialTasas].sort((a, b) => new Date(b.fechaInicio) - new Date(a.fechaInicio));
@@ -97,7 +121,6 @@
         return vig ? vig.tasa : (ordenadas[ordenadas.length - 1]?.tasa || 0);
       };
 
-      // --- OBTENER SALDO HASTA UNA FECHA ---
       const obtenerSaldoCuentaHastaFecha = (nombreCuenta, fechaLimiteStr = null) => {
         const c = cuentas.find(item => item.nombre === nombreCuenta);
         if (!c) return 0;
@@ -119,32 +142,28 @@
 
       const obtenerSaldoCuenta = (nombreCuenta) => obtenerSaldoCuentaHastaFecha(nombreCuenta, null);
 
-      // --- MOTOR DE CAPITALIZACIÓN INTERÉS COMPUESTO CON TASA HISTÓRICA ---
+      // Motor Capitalización 1 vez por día
       const ejecutarCapitalizacionHasta = (fechaObjetivoStr) => {
         const fechaUltima = new Date(ultimaCapitalizacion);
         const fechaTarget = new Date(fechaObjetivoStr);
         const diffDias = Math.floor((fechaTarget - fechaUltima) / (1000 * 60 * 60 * 24));
 
-        if (diffDias <= 0) return { abonados: 0, mensaje: 'Los rendimientos hasta el día de hoy ya están al día.' };
-
         let timestamp = Date.now();
         let movsAcumulados = [...transacciones];
         let contAbonos = 0;
 
-        for (let i = 1; i <= diffDias; i++) {
+        for (let i = 1; i <= (diffDias > 0 ? diffDias : 1); i++) {
           const currDate = new Date(fechaUltima);
-          currDate.setDate(currDate.getDate() + i);
+          currDate.setDate(currDate.getDate() + (diffDias > 0 ? i : 0));
           const fechaStr = currDate.toISOString().split('T')[0];
 
           cuentas.filter(c => c.tipoCuenta === 'Debito').forEach(c => {
             const tasaVigente = obtenerTasaVigente(c, fechaStr);
             if (tasaVigente <= 0) return;
 
-            // Verificar si ya existe abono de rendimiento para esta fecha y cuenta
             const existe = movsAcumulados.some(t => t.cuenta === c.nombre && t.fecha === fechaStr && t.concepto.includes('Rendimiento Diario'));
             if (existe) return;
 
-            // Obtener saldo exacto acumulado hasta el día de hoy antes del abono
             const movsCuenta = movsAcumulados.filter(t => t.cuenta === c.nombre && t.fecha <= fechaStr);
             const ing = movsCuenta.filter(t => t.tipo === 'Ingreso').reduce((a, b) => a + b.monto, 0);
             const egr = movsCuenta.filter(t => t.tipo === 'Egreso').reduce((a, b) => a + b.monto, 0);
@@ -172,11 +191,11 @@
         if (contAbonos > 0) {
           setTransacciones(movsAcumulados);
           setUltimaCapitalizacion(fechaObjetivoStr);
-          return { abonados: contAbonos, mensaje: `¡Se abonaron ${contAbonos} rendimientos automáticamente!` };
+          return { abonados: contAbonos, mensaje: `¡Se abonaron ${contAbonos} rendimientos correctamente!` };
         }
 
         setUltimaCapitalizacion(fechaObjetivoStr);
-        return { abonados: 0, mensaje: 'No hay nuevos rendimientos pendientes por abonar para esta fecha.' };
+        return { abonados: 0, mensaje: 'Los rendimientos de hoy ya están al día.' };
       };
 
       useEffect(() => {
@@ -190,7 +209,6 @@
         alert(res.mensaje);
       };
 
-      // Agregar nueva tasa con fecha de inicio
       const handleAgregarHistorialTasa = (e) => {
         e.preventDefault();
         const valorNum = parseFloat(nuevaTasaValor);
@@ -199,7 +217,6 @@
         setCuentas(cuentas.map(c => {
           if (c.id === cuentaTasaEditId) {
             const historialActual = c.historialTasas || [];
-            // Filtrar si ya existe registro en esa fecha
             const filtrado = historialActual.filter(h => h.fechaInicio !== nuevaTasaFecha);
             const nuevoHistorial = [...filtrado, { fechaInicio: nuevaTasaFecha, tasa: valorNum }].sort((a, b) => new Date(a.fechaInicio) - new Date(b.fechaInicio));
             return {
@@ -213,7 +230,7 @@
 
         setNuevaTasaValor('');
         setCuentaTasaEditId(null);
-        alert('Tasa actualizada correctamente para la fecha seleccionada. Los cálculos se actualizarán en vivo.');
+        alert('Tasa actualizada correctamente para la fecha seleccionada.');
       };
 
       // Totales
@@ -234,7 +251,7 @@
         return acc + (saldoActual > 0 ? (saldoActual * (tasaHoy / 100 / 365)) : 0);
       }, 0);
 
-      // ACCIONES MOVIMIENTOS
+      // ACCIONES
       const handleAgregarMovimiento = (e) => {
         e.preventDefault();
         const numMonto = parseFloat(monto);
@@ -558,10 +575,9 @@
             </div>
           )}
 
-          {/* TAB 4: ADMINISTRACIÓN DE CUENTAS E HISTORIAL DE TASAS */}
+          {/* TAB 4: ADMINISTRACIÓN DE CUENTAS */}
           {activeTab === 'cuentas' && (
             <div class="space-y-4">
-              {/* Modal de edición de Tasa por Fecha */}
               {cuentaTasaEditId && (
                 <form onSubmit={handleAgregarHistorialTasa} class="bg-slate-800 p-4 rounded-2xl border border-emerald-500/50 space-y-3">
                   <div class="flex justify-between items-center">
@@ -582,7 +598,6 @@
                 </form>
               )}
 
-              {/* Formulario Crear Cuenta */}
               <form onSubmit={handleAgregarCuenta} class="bg-slate-800 p-4 rounded-2xl border border-slate-700 space-y-3">
                 <h3 class="text-xs font-bold text-emerald-400 uppercase">Agregar Nueva Cuenta</h3>
                 
@@ -611,7 +626,6 @@
                 </button>
               </form>
 
-              {/* Lista de Cuentas e Historial de Tasas */}
               <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 space-y-3">
                 <h3 class="text-xs font-bold text-slate-400 uppercase">Cuentas Registradas</h3>
                 {cuentas.map(c => {
@@ -634,7 +648,6 @@
                             </button>
                           </div>
                           
-                          {/* Historial de cambios */}
                           {c.historialTasas && c.historialTasas.length > 0 && (
                             <div class="text-[10px] text-slate-500 bg-slate-950/40 p-2 rounded-lg space-y-0.5">
                               <span class="font-bold text-slate-400">Histórico de Tasas:</span>
