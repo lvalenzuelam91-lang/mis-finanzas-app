@@ -15,10 +15,64 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
+    // Catálogo base de Categorías y Distribuciones extraídas del Excel
+    const CATALOGO_CATEGORIAS_DEFAULT = [
+      {"categoria": "Renta", "distribucion": "Vivienda"},
+      {"categoria": "Hipoteca", "distribucion": "Vivienda"},
+      {"categoria": "Gas", "distribucion": "Vivienda"},
+      {"categoria": "Luz", "distribucion": "Vivienda"},
+      {"categoria": "Gastos de la casa", "distribucion": "Vivienda"},
+      {"categoria": "Mascota", "distribucion": "Vivienda"},
+      {"categoria": "Mantenimiento", "distribucion": "Vivienda"},
+      {"categoria": "Mejora del hogar", "distribucion": "Vivienda"},
+      {"categoria": "Despensa y mercado", "distribucion": "Alimentación"},
+      {"categoria": "Plan o recarga celular", "distribucion": "Servicios y transporte"},
+      {"categoria": "Gasolina auto/moto", "distribucion": "Servicios y transporte"},
+      {"categoria": "Transporte público", "distribucion": "Servicios y transporte"},
+      {"categoria": "Mantenimiento de auto/moto", "distribucion": "Servicios y transporte"},
+      {"categoria": "Estacionamiento", "distribucion": "Servicios y transporte"},
+      {"categoria": "Tramites legales", "distribucion": "Servicios y transporte"},
+      {"categoria": "Seguro de auto", "distribucion": "Salud y seguros"},
+      {"categoria": "Salud (Medicina)", "distribucion": "Salud y seguros"},
+      {"categoria": "Eventos (cine, teatro, conciertos)", "distribucion": "Entretenimiento y ocio"},
+      {"categoria": "Restaurantes / Bares", "distribucion": "Entretenimiento y ocio"},
+      {"categoria": "Fiestas", "distribucion": "Entretenimiento y ocio"},
+      {"categoria": "Streaming", "distribucion": "Entretenimiento y ocio"},
+      {"categoria": "Hotel", "distribucion": "Entretenimiento y ocio"},
+      {"categoria": "Transporte", "distribucion": "Entretenimiento y ocio"},
+      {"categoria": "Comidas", "distribucion": "Entretenimiento y ocio"},
+      {"categoria": "Regalos", "distribucion": "Entretenimiento y ocio"},
+      {"categoria": "Entretenimiento", "distribucion": "Entretenimiento y ocio"},
+      {"categoria": "Higiene personal", "distribucion": "Cuidado personal y compras"},
+      {"categoria": "Ropa", "distribucion": "Cuidado personal y compras"},
+      {"categoria": "Deporte", "distribucion": "Cuidado personal y compras"},
+      {"categoria": "Educacion", "distribucion": "Cuidado personal y compras"},
+      {"categoria": "Libros / Útiles / Uniforme", "distribucion": "Cuidado personal y compras"},
+      {"categoria": "Juguetes / Juegos", "distribucion": "Cuidado personal y compras"},
+      {"categoria": "Bebidas /dulces / pan", "distribucion": "Cuidado personal y compras"},
+      {"categoria": "Propinas", "distribucion": "Cuidado personal y compras"},
+      {"categoria": "Gasto no reconocido", "distribucion": "Cuidado personal y compras"},
+      {"categoria": "Ahorro por meta", "distribucion": "Ahorro e inversión"},
+      {"categoria": "Ahorro para el retiro (Afore)", "distribucion": "Ahorro e inversión"},
+      {"categoria": "Envíos de dinero", "distribucion": "Pago de deudas"},
+      {"categoria": "Préstamo personal", "distribucion": "Pago de deudas"},
+      {"categoria": "Nomina", "distribucion": "Negocio/Actividad productiva"},
+      {"categoria": "Devoluciones", "distribucion": "Negocio/Actividad productiva"},
+      {"categoria": "Intereses", "distribucion": "Negocio/Actividad productiva"},
+      {"categoria": "Ganado", "distribucion": "Negocio/Actividad productiva"},
+      {"categoria": "Cuadre de Saldos", "distribucion": "Negocio/Actividad productiva"}
+    ];
+
     function App() {
       const [activeTab, setActiveTab] = useState('resumen');
 
-      // 1. ESTADO DE CUENTAS
+      // 1. ESTADO DE CATEGORÍAS (Base de datos alimentable)
+      const [categoriasMap, setCategoriasMap] = useState(() => {
+        const saved = localStorage.getItem('finanzas_categorias_map');
+        return saved ? JSON.parse(saved) : CATALOGO_CATEGORIAS_DEFAULT;
+      });
+
+      // 2. ESTADO DE CUENTAS
       const [cuentas, setCuentas] = useState(() => {
         const saved = localStorage.getItem('finanzas_cuentas');
         if (saved) {
@@ -40,7 +94,7 @@
         ];
       });
 
-      // 2. ESTADO DE TRANSACCIONES
+      // 3. ESTADO DE TRANSACCIONES
       const [transacciones, setTransacciones] = useState(() => {
         const saved = localStorage.getItem('finanzas_transacciones');
         return saved ? JSON.parse(saved) : [];
@@ -50,25 +104,36 @@
         return localStorage.getItem('finanzas_ultima_cap') || '2026-11-04';
       });
 
-      // Formularios
+      // ESTADOS DE CAPTURA
+      const hoyStr = new Date().toISOString().split('T')[0];
+      const [fechaCaptura, setFechaCaptura] = useState(hoyStr);
       const [monto, setMonto] = useState('');
       const [concepto, setConcepto] = useState('');
       const [tipoMov, setTipoMov] = useState('Egreso');
+      const [categoriaSel, setCategoriaSel] = useState(CATALOGO_CATEGORIAS_DEFAULT[0].categoria);
       const [cuentaSel, setCuentaSel] = useState('');
       const [cuentaDestinoSel, setCuentaDestinoSel] = useState('');
-      const [distribucion, setDistribucion] = useState('50% Necesidad');
 
+      // Formulario Nueva Cuenta
       const [nuevaCuentaNombre, setNuevaCuentaNombre] = useState('');
       const [nuevaCuentaTipo, setNuevaCuentaTipo] = useState('Debito');
       const [nuevaCuentaSaldo, setNuevaCuentaSaldo] = useState('');
       const [nuevaCuentaTasa, setNuevaCuentaTasa] = useState('');
       const [nuevaCuentaLimite, setNuevaCuentaLimite] = useState('');
 
+      // Formulario Nueva Categoría
+      const [nuevaCatNombre, setNuevaCatNombre] = useState('');
+      const [nuevaCatDistribucion, setNuevaCatDistribucion] = useState('Alimentación');
+
       const [cuentaTasaEditId, setCuentaTasaEditId] = useState(null);
-      const [nuevaTasaFecha, setNuevaTasaFecha] = useState(new Date().toISOString().split('T')[0]);
+      const [nuevaTasaFecha, setNuevaTasaFecha] = useState(hoyStr);
       const [nuevaTasaValor, setNuevaTasaValor] = useState('');
 
-      // Persistencia
+      // Persistencia LocalStorage
+      useEffect(() => {
+        localStorage.setItem('finanzas_categorias_map', JSON.stringify(categoriasMap));
+      }, [categoriasMap]);
+
       useEffect(() => {
         localStorage.setItem('finanzas_cuentas', JSON.stringify(cuentas));
       }, [cuentas]);
@@ -88,10 +153,15 @@
         }
       }, [cuentas]);
 
-      // --- DEPURACIÓN AUTOMÁTICA DE REGISTROS DE RENDIMIENTO DUPLICADOS ---
+      // Obtener Distribución vinculada automáticamente a la Categoría
+      const obtenerDistribucionDeCategoria = (nombreCat) => {
+        const item = categoriasMap.find(c => c.categoria === nombreCat);
+        return item ? item.distribucion : 'General';
+      };
+
+      // DEPURACIÓN AUTOMÁTICA DE REGISTROS DUPLICADOS
       useEffect(() => {
         if (transacciones.length === 0) return;
-
         const vistas = new Set();
         let huboDuplicados = false;
 
@@ -101,7 +171,7 @@
             const claveUnica = `${t.cuenta}_${t.fecha}`;
             if (vistas.has(claveUnica)) {
               huboDuplicados = true;
-              return false; // Descartar duplicado
+              return false;
             }
             vistas.add(claveUnica);
           }
@@ -113,7 +183,6 @@
         }
       }, []);
 
-      // Auxiliares
       const obtenerTasaVigente = (cuenta, fechaStr) => {
         if (!cuenta.historialTasas || cuenta.historialTasas.length === 0) return cuenta.tasa || 0;
         const ordenadas = [...cuenta.historialTasas].sort((a, b) => new Date(b.fechaInicio) - new Date(a.fechaInicio));
@@ -121,15 +190,10 @@
         return vig ? vig.tasa : (ordenadas[ordenadas.length - 1]?.tasa || 0);
       };
 
-      const obtenerSaldoCuentaHastaFecha = (nombreCuenta, fechaLimiteStr = null) => {
+      const obtenerSaldoCuenta = (nombreCuenta) => {
         const c = cuentas.find(item => item.nombre === nombreCuenta);
         if (!c) return 0;
-        
-        let movs = transacciones.filter(t => t.cuenta === nombreCuenta);
-        if (fechaLimiteStr) {
-          movs = movs.filter(t => t.fecha <= fechaLimiteStr);
-        }
-
+        const movs = transacciones.filter(t => t.cuenta === nombreCuenta);
         const ingresos = movs.filter(t => t.tipo === 'Ingreso').reduce((a, b) => a + b.monto, 0);
         const egresos = movs.filter(t => t.tipo === 'Egreso').reduce((a, b) => a + b.monto, 0);
 
@@ -140,9 +204,7 @@
         }
       };
 
-      const obtenerSaldoCuenta = (nombreCuenta) => obtenerSaldoCuentaHastaFecha(nombreCuenta, null);
-
-      // Motor Capitalización 1 vez por día
+      // Motor Capitalización Diaria
       const ejecutarCapitalizacionHasta = (fechaObjetivoStr) => {
         const fechaUltima = new Date(ultimaCapitalizacion);
         const fechaTarget = new Date(fechaObjetivoStr);
@@ -179,7 +241,8 @@
                   monto: rendimiento,
                   tipo: 'Ingreso',
                   cuenta: c.nombre,
-                  distribucion: '20% Ahorro/Inversión'
+                  categoria: 'Intereses',
+                  distribucion: 'Ahorro e inversión'
                 };
                 movsAcumulados.unshift(nuevoMov);
                 contAbonos++;
@@ -199,65 +262,21 @@
       };
 
       useEffect(() => {
-        const hoy = new Date().toISOString().split('T')[0];
-        ejecutarCapitalizacionHasta(hoy);
+        ejecutarCapitalizacionHasta(hoyStr);
       }, []);
 
       const handleBotonCapitalizar = () => {
-        const hoy = new Date().toISOString().split('T')[0];
-        const res = ejecutarCapitalizacionHasta(hoy);
+        const res = ejecutarCapitalizacionHasta(hoyStr);
         alert(res.mensaje);
       };
 
-      const handleAgregarHistorialTasa = (e) => {
-        e.preventDefault();
-        const valorNum = parseFloat(nuevaTasaValor);
-        if (isNaN(valorNum) || !nuevaTasaFecha || !cuentaTasaEditId) return;
-
-        setCuentas(cuentas.map(c => {
-          if (c.id === cuentaTasaEditId) {
-            const historialActual = c.historialTasas || [];
-            const filtrado = historialActual.filter(h => h.fechaInicio !== nuevaTasaFecha);
-            const nuevoHistorial = [...filtrado, { fechaInicio: nuevaTasaFecha, tasa: valorNum }].sort((a, b) => new Date(a.fechaInicio) - new Date(b.fechaInicio));
-            return {
-              ...c,
-              tasa: valorNum,
-              historialTasas: nuevoHistorial
-            };
-          }
-          return c;
-        }));
-
-        setNuevaTasaValor('');
-        setCuentaTasaEditId(null);
-        alert('Tasa actualizada correctamente para la fecha seleccionada.');
-      };
-
-      // Totales
-      const cuentasDebito = cuentas.filter(c => c.tipoCuenta !== 'Credito');
-      const cuentasCredito = cuentas.filter(c => c.tipoCuenta === 'Credito');
-
-      const totalSaldoDebito = cuentasDebito.reduce((acc, c) => acc + obtenerSaldoCuenta(c.nombre), 0);
-      const totalDeudaCredito = cuentasCredito.reduce((acc, c) => acc + obtenerSaldoCuenta(c.nombre), 0);
-      const patrimonioNetoReal = totalSaldoDebito - totalDeudaCredito;
-
-      const totalLimiteCredito = cuentasCredito.reduce((acc, c) => acc + c.limiteCredito, 0);
-      const totalDisponibleCredito = totalLimiteCredito - totalDeudaCredito;
-
-      const hoyStr = new Date().toISOString().split('T')[0];
-      const rendimientoDiarioTotal = cuentasDebito.reduce((acc, c) => {
-        const saldoActual = obtenerSaldoCuenta(c.nombre);
-        const tasaHoy = obtenerTasaVigente(c, hoyStr);
-        return acc + (saldoActual > 0 ? (saldoActual * (tasaHoy / 100 / 365)) : 0);
-      }, 0);
-
-      // ACCIONES
+      // ACCIONES CAPTURA
       const handleAgregarMovimiento = (e) => {
         e.preventDefault();
         const numMonto = parseFloat(monto);
         if (!numMonto || isNaN(numMonto)) return;
 
-        const fechaHoy = new Date().toISOString().split('T')[0];
+        const fechaFinal = fechaCaptura || hoyStr;
 
         if (tipoMov === 'Traspaso') {
           if (cuentaSel === cuentaDestinoSel) {
@@ -269,35 +288,40 @@
 
           const movEgreso = {
             id: Date.now(),
-            fecha: fechaHoy,
+            fecha: fechaFinal,
             concepto: desc,
             monto: numMonto,
             tipo: 'Egreso',
             cuenta: cuentaSel,
-            distribucion: 'Traspaso entre cuentas'
+            categoria: 'Traspaso entre cuentas',
+            distribucion: 'Movimiento'
           };
 
           const movIngreso = {
             id: Date.now() + 1,
-            fecha: fechaHoy,
+            fecha: fechaFinal,
             concepto: desc,
             monto: numMonto,
             tipo: 'Ingreso',
             cuenta: cuentaDestinoSel,
-            distribucion: 'Traspaso entre cuentas'
+            categoria: 'Traspaso entre cuentas',
+            distribucion: 'Movimiento'
           };
 
           setTransacciones([movEgreso, movIngreso, ...transacciones]);
         } else {
           if (!concepto) return;
+          const distribucionAsignada = obtenerDistribucionDeCategoria(categoriaSel);
+
           const nuevo = {
             id: Date.now(),
-            fecha: fechaHoy,
+            fecha: fechaFinal,
             concepto,
             monto: numMonto,
             tipo: tipoMov,
             cuenta: cuentaSel || cuentas[0]?.nombre,
-            distribucion
+            categoria: categoriaSel,
+            distribucion: distribucionAsignada
           };
           setTransacciones([nuevo, ...transacciones]);
         }
@@ -313,12 +337,27 @@
         }
       };
 
+      const handleAgregarCategoriaNueva = (e) => {
+        e.preventDefault();
+        if (!nuevaCatNombre.trim()) return;
+        const nombreLimpio = nuevaCatNombre.trim();
+        if (categoriasMap.some(c => c.categoria.toLowerCase() === nombreLimpio.toLowerCase())) {
+          alert('Esta categoría ya existe.');
+          return;
+        }
+
+        const nuevaList = [...categoriasMap, { categoria: nombreLimpio, distribucion: nuevaCatDistribucion }];
+        setCategoriasMap(nuevaList);
+        setCategoriaSel(nombreLimpio);
+        setNuevaCatNombre('');
+        alert(`Categoría "${nombreLimpio}" creada vinculada a "${nuevaCatDistribucion}".`);
+      };
+
       const handleAgregarCuenta = (e) => {
         e.preventDefault();
         if (!nuevaCuentaNombre) return;
 
         const tasaVal = parseFloat(nuevaCuentaTasa) || 0;
-        const fechaHoy = new Date().toISOString().split('T')[0];
 
         const nueva = {
           id: Date.now(),
@@ -327,7 +366,7 @@
           saldoInicial: parseFloat(nuevaCuentaSaldo) || 0,
           tasa: nuevaCuentaTipo === 'Debito' ? tasaVal : 0,
           limiteCredito: nuevaCuentaTipo === 'Credito' ? (parseFloat(nuevaCuentaLimite) || 0) : 0,
-          historialTasas: nuevaCuentaTipo === 'Debito' && tasaVal > 0 ? [{ fechaInicio: fechaHoy, tasa: tasaVal }] : []
+          historialTasas: nuevaCuentaTipo === 'Debito' && tasaVal > 0 ? [{ fechaInicio: hoyStr, tasa: tasaVal }] : []
         };
 
         setCuentas([...cuentas, nueva]);
@@ -343,13 +382,30 @@
         }
       };
 
+      // Totales
+      const cuentasDebito = cuentas.filter(c => c.tipoCuenta !== 'Credito');
+      const cuentasCredito = cuentas.filter(c => c.tipoCuenta === 'Credito');
+
+      const totalSaldoDebito = cuentasDebito.reduce((acc, c) => acc + obtenerSaldoCuenta(c.nombre), 0);
+      const totalDeudaCredito = cuentasCredito.reduce((acc, c) => acc + obtenerSaldoCuenta(c.nombre), 0);
+      const patrimonioNetoReal = totalSaldoDebito - totalDeudaCredito;
+
+      const totalLimiteCredito = cuentasCredito.reduce((acc, c) => acc + c.limiteCredito, 0);
+      const totalDisponibleCredito = totalLimiteCredito - totalDeudaCredito;
+
+      const rendimientoDiarioTotal = cuentasDebito.reduce((acc, c) => {
+        const saldoActual = obtenerSaldoCuenta(c.nombre);
+        const tasaHoy = obtenerTasaVigente(c, hoyStr);
+        return acc + (saldoActual > 0 ? (saldoActual * (tasaHoy / 100 / 365)) : 0);
+      }, 0);
+
       return (
         <div class="max-w-md mx-auto p-4 pb-24">
           {/* Header */}
           <div class="flex justify-between items-center mb-5">
             <div>
               <h1 class="text-xl font-bold text-emerald-400">Finanzas Personales</h1>
-              <p class="text-xs text-slate-400">Control de Saldos e Interés Compuesto</p>
+              <p class="text-xs text-slate-400">Control de Saldos y Captura</p>
             </div>
             <div class="text-right">
               <span class="text-xs text-slate-400">Resumen 2026</span>
@@ -361,7 +417,7 @@
             <button onClick={() => setActiveTab('resumen')} class={`py-2 rounded-lg ${activeTab === 'resumen' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>Resumen</button>
             <button onClick={() => setActiveTab('captura')} class={`py-2 rounded-lg ${activeTab === 'captura' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>+ Captura</button>
             <button onClick={() => setActiveTab('semanal')} class={`py-2 rounded-lg ${activeTab === 'semanal' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>Semanal</button>
-            <button onClick={() => setActiveTab('cuentas')} class={`py-2 rounded-lg ${activeTab === 'cuentas' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>Cuentas</button>
+            <button onClick={() => setActiveTab('cuentas')} class={`py-2 rounded-lg ${activeTab === 'cuentas' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>Config</button>
           </div>
 
           {/* TAB 1: RESUMEN GENERAL */}
@@ -468,7 +524,8 @@
                       <div key={t.id} class="flex justify-between items-center text-sm p-2.5 rounded-lg bg-slate-900/60 border border-slate-800">
                         <div class="flex-1 pr-2">
                           <div class="font-semibold text-slate-200">{t.concepto}</div>
-                          <div class="text-xs text-slate-400">{t.cuenta} • {t.distribucion} • {t.fecha}</div>
+                          <div class="text-xs text-slate-400">{t.cuenta} • <span class="text-emerald-400 font-medium">{t.categoria || 'Gasto'}</span> • <span class="text-slate-500">{t.distribucion}</span></div>
+                          <div class="text-[10px] text-slate-500">{t.fecha}</div>
                         </div>
                         <div class="flex items-center space-x-3">
                           <span class={`font-bold ${t.tipo === 'Ingreso' ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -487,13 +544,21 @@
           {/* TAB 2: CAPTURA DE GASTO / INGRESO / TRASPASO */}
           {activeTab === 'captura' && (
             <form onSubmit={handleAgregarMovimiento} class="bg-slate-800 p-5 rounded-2xl border border-slate-700 space-y-4">
-              <h2 class="text-sm font-bold text-slate-200">Registrar en Hoja de Captura</h2>
+              <h2 class="text-sm font-bold text-slate-200">Registrar Movimiento</h2>
 
+              {/* 1. Fecha con opción a fechas anteriores */}
               <div>
-                <label class="block text-xs text-slate-400 mb-1">Monto ($)</label>
-                <input type="number" step="0.01" placeholder="0.00" value={monto} onChange={e => setMonto(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-lg font-bold text-emerald-400 focus:outline-none" required />
+                <label class="block text-xs text-slate-400 mb-1">Fecha de Registro</label>
+                <input 
+                  type="date" 
+                  value={fechaCaptura} 
+                  onChange={e => setFechaCaptura(e.target.value)} 
+                  class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" 
+                  required 
+                />
               </div>
 
+              {/* 2. Tipo de Movimiento */}
               <div>
                 <label class="block text-xs text-slate-400 mb-1">Tipo de Movimiento</label>
                 <select value={tipoMov} onChange={e => setTipoMov(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 font-semibold">
@@ -501,6 +566,12 @@
                   <option value="Ingreso">Ingreso (+) [Entrada / Abono]</option>
                   <option value="Traspaso">Traspaso entre Cuentas (Transferencia)</option>
                 </select>
+              </div>
+
+              {/* 3. Monto */}
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Monto ($)</label>
+                <input type="number" step="0.01" placeholder="0.00" value={monto} onChange={e => setMonto(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-lg font-bold text-emerald-400 focus:outline-none" required />
               </div>
 
               {tipoMov === 'Traspaso' ? (
@@ -520,38 +591,48 @@
                     </div>
                   </div>
                   <div>
-                    <label class="block text-xs text-slate-400 mb-1">Concepto Opcional</label>
+                    <label class="block text-xs text-slate-400 mb-1">Concepto / Referencia Opcional</label>
                     <input type="text" placeholder={`Traspaso: ${cuentaSel} ➔ ${cuentaDestinoSel}`} value={concepto} onChange={e => setConcepto(e.target.value)} class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200" />
                   </div>
                 </div>
               ) : (
                 <>
+                  {/* 4. Concepto */}
                   <div>
                     <label class="block text-xs text-slate-400 mb-1">Concepto / Descripción</label>
-                    <input type="text" placeholder="Ej. Despensa, Gasolina, Supermercado" value={concepto} onChange={e => setConcepto(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none" required />
+                    <input type="text" placeholder="Ej. Gasolina, Supermercado, Pago servicio" value={concepto} onChange={e => setConcepto(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none" required />
                   </div>
 
+                  {/* 5. Categoría y Distribución Automática */}
                   <div class="grid grid-cols-2 gap-3">
                     <div>
-                      <label class="block text-xs text-slate-400 mb-1">Cuenta Destino/Origen</label>
-                      <select value={cuentaSel} onChange={e => setCuentaSel(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
-                        {cuentas.map(c => <option key={c.id} value={c.nombre}>{c.nombre} ({c.tipoCuenta})</option>)}
+                      <label class="block text-xs text-slate-400 mb-1">Categoría</label>
+                      <select value={categoriaSel} onChange={e => setCategoriaSel(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-2 py-2 text-xs text-slate-200">
+                        {categoriasMap.map((c, idx) => (
+                          <option key={idx} value={c.categoria}>{c.categoria}</option>
+                        ))}
                       </select>
                     </div>
                     <div>
-                      <label class="block text-xs text-slate-400 mb-1">Distribución 50/30/20</label>
-                      <select value={distribucion} onChange={e => setDistribucion(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
-                        <option value="50% Necesidad">50% Necesidad (Fijo)</option>
-                        <option value="30% Deseo">30% Deseo (Gusto/Variable)</option>
-                        <option value="20% Ahorro/Inversión">20% Ahorro / Inversión</option>
-                      </select>
+                      <label class="block text-xs text-slate-400 mb-1">Distribución (Auto)</label>
+                      <div class="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-3 py-2 text-xs font-bold text-emerald-400 truncate">
+                        {obtenerDistribucionDeCategoria(categoriaSel)}
+                      </div>
                     </div>
+                  </div>
+
+                  {/* 6. Cuenta */}
+                  <div>
+                    <label class="block text-xs text-slate-400 mb-1">Cuenta</label>
+                    <select value={cuentaSel} onChange={e => setCuentaSel(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
+                      {cuentas.map(c => <option key={c.id} value={c.nombre}>{c.nombre} ({c.tipoCuenta})</option>)}
+                    </select>
                   </div>
                 </>
               )}
 
               <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl transition mt-2">
-                {tipoMov === 'Traspaso' ? 'Ejecutar Traspaso entre Cuentas' : 'Guardar en Captura'}
+                {tipoMov === 'Traspaso' ? 'Ejecutar Traspaso entre Cuentas' : 'Guardar Movimiento'}
               </button>
             </form>
           )}
@@ -562,12 +643,15 @@
               <h2 class="text-sm font-bold text-slate-200">Control de Gasto Semanal</h2>
               <p class="text-xs text-slate-400">Egresos de consumo registrados (excluye traspasos):</p>
               <div class="text-2xl font-bold text-rose-400">
-                -${transacciones.filter(t => t.tipo === 'Egreso' && t.distribucion !== 'Traspaso entre cuentas').reduce((a, b) => a + b.monto, 0).toLocaleString('es-MX', {minimumFractionDigits: 2})}
+                -${transacciones.filter(t => t.tipo === 'Egreso' && t.distribucion !== 'Movimiento').reduce((a, b) => a + b.monto, 0).toLocaleString('es-MX', {minimumFractionDigits: 2})}
               </div>
               <div class="space-y-2 pt-2">
-                {transacciones.filter(t => t.tipo === 'Egreso' && t.distribucion !== 'Traspaso entre cuentas').map(t => (
+                {transacciones.filter(t => t.tipo === 'Egreso' && t.distribucion !== 'Movimiento').map(t => (
                   <div key={t.id} class="flex justify-between items-center text-xs p-2 bg-slate-900/50 rounded-lg">
-                    <span>{t.concepto} ({t.cuenta})</span>
+                    <div>
+                      <div class="font-semibold text-slate-200">{t.concepto} ({t.cuenta})</div>
+                      <div class="text-[10px] text-slate-400">{t.categoria} • {t.fecha}</div>
+                    </div>
                     <span class="font-bold text-rose-400">-${t.monto.toLocaleString()}</span>
                   </div>
                 ))}
@@ -575,32 +659,34 @@
             </div>
           )}
 
-          {/* TAB 4: ADMINISTRACIÓN DE CUENTAS */}
+          {/* TAB 4: CONFIGURACIÓN Y CATÁLOGOS */}
           {activeTab === 'cuentas' && (
             <div class="space-y-4">
-              {cuentaTasaEditId && (
-                <form onSubmit={handleAgregarHistorialTasa} class="bg-slate-800 p-4 rounded-2xl border border-emerald-500/50 space-y-3">
-                  <div class="flex justify-between items-center">
-                    <h3 class="text-xs font-bold text-emerald-400 uppercase">Cambiar Tasa con Fecha de Inicio</h3>
-                    <button type="button" onClick={() => setCuentaTasaEditId(null)} class="text-slate-400 text-xs">✕ Cancelar</button>
-                  </div>
-                  <div>
-                    <label class="block text-[10px] text-slate-400 mb-1">Fecha de Inicio de Nueva Tasa</label>
-                    <input type="date" value={nuevaTasaFecha} onChange={e => setNuevaTasaFecha(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200" required />
-                  </div>
-                  <div>
-                    <label class="block text-[10px] text-slate-400 mb-1">Nueva Tasa Anual (%)</label>
-                    <input type="number" step="0.01" placeholder="Ej. 13.00" value={nuevaTasaValor} onChange={e => setNuevaTasaValor(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200" required />
-                  </div>
-                  <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-lg text-xs">
-                    Aplicar Tasa a partir de esta Fecha
-                  </button>
-                </form>
-              )}
+              {/* Formulario Alimentar Nuevas Categorías */}
+              <form onSubmit={handleAgregarCategoriaNueva} class="bg-slate-800 p-4 rounded-2xl border border-emerald-500/40 space-y-3">
+                <h3 class="text-xs font-bold text-emerald-400 uppercase">+ Crear / Alimentar Nueva Categoría</h3>
+                <div class="grid grid-cols-2 gap-2">
+                  <input type="text" placeholder="Nombre Categoría (ej. Mantenimiento)" value={nuevaCatNombre} onChange={e => setNuevaCatNombre(e.target.value)} class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200" required />
+                  <select value={nuevaCatDistribucion} onChange={e => setNuevaCatDistribucion(e.target.value)} class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200">
+                    <option value="Vivienda">Vivienda</option>
+                    <option value="Alimentación">Alimentación</option>
+                    <option value="Servicios y transporte">Servicios y transporte</option>
+                    <option value="Salud y seguros">Salud y seguros</option>
+                    <option value="Entretenimiento y ocio">Entretenimiento y ocio</option>
+                    <option value="Cuidado personal y compras">Cuidado personal y compras</option>
+                    <option value="Ahorro e inversión">Ahorro e inversión</option>
+                    <option value="Pago de deudas">Pago de deudas</option>
+                    <option value="Negocio/Actividad productiva">Negocio/Actividad productiva</option>
+                  </select>
+                </div>
+                <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-lg text-xs">
+                  Guardar Categoría en Base de Datos
+                </button>
+              </form>
 
+              {/* Crear Cuenta */}
               <form onSubmit={handleAgregarCuenta} class="bg-slate-800 p-4 rounded-2xl border border-slate-700 space-y-3">
                 <h3 class="text-xs font-bold text-emerald-400 uppercase">Agregar Nueva Cuenta</h3>
-                
                 <div class="grid grid-cols-2 gap-2">
                   <input type="text" placeholder="Nombre (ej. Plata Card)" value={nuevaCuentaNombre} onChange={e => setNuevaCuentaNombre(e.target.value)} class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200" required />
                   <select value={nuevaCuentaTipo} onChange={e => setNuevaCuentaTipo(e.target.value)} class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200">
@@ -626,6 +712,7 @@
                 </button>
               </form>
 
+              {/* Lista de Cuentas */}
               <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 space-y-3">
                 <h3 class="text-xs font-bold text-slate-400 uppercase">Cuentas Registradas</h3>
                 {cuentas.map(c => {
@@ -636,36 +723,6 @@
                         <span>{c.nombre} <span class="text-xs font-normal text-slate-400">({c.tipoCuenta})</span></span>
                         <button onClick={() => handleEliminarCuenta(c.id)} class="text-rose-400 text-xs hover:underline">Eliminar</button>
                       </div>
-
-                      {c.tipoCuenta === 'Debito' ? (
-                        <div class="space-y-1.5 pt-1 border-t border-slate-800">
-                          <div class="flex items-center justify-between text-xs text-slate-400">
-                            <span>Tasa Vigente Hoy: <strong class="text-emerald-400">{tasaActual}%</strong></span>
-                            <button 
-                              onClick={() => { setCuentaTasaEditId(c.id); setNuevaTasaValor(tasaActual); }}
-                              class="text-xs text-sky-400 hover:underline font-semibold">
-                              + Cambiar Tasa por Fecha
-                            </button>
-                          </div>
-                          
-                          {c.historialTasas && c.historialTasas.length > 0 && (
-                            <div class="text-[10px] text-slate-500 bg-slate-950/40 p-2 rounded-lg space-y-0.5">
-                              <span class="font-bold text-slate-400">Histórico de Tasas:</span>
-                              {c.historialTasas.map((h, idx) => (
-                                <div key={idx} class="flex justify-between">
-                                  <span>Desde {h.fechaInicio}:</span>
-                                  <span class="font-bold text-emerald-400">{h.tasa}% APY</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div class="flex items-center justify-between text-xs text-slate-400 pt-1 border-t border-slate-800">
-                          <span>Límite de Crédito ($):</span>
-                          <span class="font-bold text-sky-400">${c.limiteCredito.toLocaleString()}</span>
-                        </div>
-                      )}
                     </div>
                   );
                 })}
