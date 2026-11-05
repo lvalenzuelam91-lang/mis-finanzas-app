@@ -23,7 +23,6 @@
         const saved = localStorage.getItem('finanzas_cuentas');
         if (saved) {
           const parsed = JSON.parse(saved);
-          // Asegurar que cada cuenta tenga la propiedad 'tipoCuenta'
           return parsed.map(c => ({
             tipoCuenta: 'Debito',
             limiteCredito: 0,
@@ -45,11 +44,12 @@
         return saved ? JSON.parse(saved) : [];
       });
 
-      // Formulario Captura
+      // Formulario Captura Estándar
       const [monto, setMonto] = useState('');
       const [concepto, setConcepto] = useState('');
-      const [tipo, setTipo] = useState('Egreso');
+      const [tipoMov, setTipoMov] = useState('Egreso'); // Egreso, Ingreso, Traspaso
       const [cuentaSel, setCuentaSel] = useState('');
+      const [cuentaDestinoSel, setCuentaDestinoSel] = useState('');
       const [distribucion, setDistribucion] = useState('50% Necesidad');
 
       // Formulario Nueva Cuenta
@@ -69,8 +69,9 @@
       }, [transacciones]);
 
       useEffect(() => {
-        if (cuentas.length > 0 && !cuentaSel) {
-          setCuentaSel(cuentas[0].nombre);
+        if (cuentas.length > 0) {
+          if (!cuentaSel) setCuentaSel(cuentas[0].nombre);
+          if (!cuentaDestinoSel) setCuentaDestinoSel(cuentas[1]?.nombre || cuentas[0].nombre);
         }
       }, [cuentas]);
 
@@ -83,7 +84,7 @@
         const egresos = movs.filter(t => t.tipo === 'Egreso').reduce((a, b) => a + b.monto, 0);
 
         if (c.tipoCuenta === 'Credito') {
-          // En crédito: saldo inicial (deuda inicial) + egresos (compras) - ingresos (pagos)
+          // En crédito: deuda inicial + compras (egresos) - pagos (ingresos)
           return c.saldoInicial + egresos - ingresos;
         } else {
           // En débito: saldo inicial + ingresos - egresos
@@ -96,6 +97,10 @@
 
       const totalSaldoDebito = cuentasDebito.reduce((acc, c) => acc + obtenerSaldoCuenta(c.nombre), 0);
       const totalDeudaCredito = cuentasCredito.reduce((acc, c) => acc + obtenerSaldoCuenta(c.nombre), 0);
+      
+      // Dinero Real Neto
+      const patrimonioNetoReal = totalSaldoDebito - totalDeudaCredito;
+
       const totalLimiteCredito = cuentasCredito.reduce((acc, c) => acc + c.limiteCredito, 0);
       const totalDisponibleCredito = totalLimiteCredito - totalDeudaCredito;
 
@@ -107,19 +112,56 @@
       // --- ACCIONES ---
       const handleAgregarMovimiento = (e) => {
         e.preventDefault();
-        if (!monto || !concepto) return;
+        const numMonto = parseFloat(monto);
+        if (!numMonto || isNaN(numMonto)) return;
 
-        const nuevo = {
-          id: Date.now(),
-          fecha: new Date().toISOString().split('T')[0],
-          concepto,
-          monto: parseFloat(monto),
-          tipo,
-          cuenta: cuentaSel || cuentas[0]?.nombre,
-          distribucion
-        };
+        const fechaHoy = new Date().toISOString().split('T')[0];
 
-        setTransacciones([nuevo, ...transacciones]);
+        if (tipoMov === 'Traspaso') {
+          if (cuentaSel === cuentaDestinoSel) {
+            alert('La cuenta de origen y destino deben ser distintas.');
+            return;
+          }
+
+          const desc = concepto.trim() ? concepto.trim() : `Traspaso: ${cuentaSel} ➔ ${cuentaDestinoSel}`;
+
+          // Movimiento 1: Salida de origen (Egreso)
+          const movEgreso = {
+            id: Date.now(),
+            fecha: fechaHoy,
+            concepto: desc,
+            monto: numMonto,
+            tipo: 'Egreso',
+            cuenta: cuentaSel,
+            distribucion: 'Traspaso entre cuentas'
+          };
+
+          // Movimiento 2: Entrada a destino (Ingreso)
+          const movIngreso = {
+            id: Date.now() + 1,
+            fecha: fechaHoy,
+            concepto: desc,
+            monto: numMonto,
+            tipo: 'Ingreso',
+            cuenta: cuentaDestinoSel,
+            distribucion: 'Traspaso entre cuentas'
+          };
+
+          setTransacciones([movEgreso, movIngreso, ...transacciones]);
+        } else {
+          if (!concepto) return;
+          const nuevo = {
+            id: Date.now(),
+            fecha: fechaHoy,
+            concepto,
+            monto: numMonto,
+            tipo: tipoMov,
+            cuenta: cuentaSel || cuentas[0]?.nombre,
+            distribucion
+          };
+          setTransacciones([nuevo, ...transacciones]);
+        }
+
         setMonto('');
         setConcepto('');
         setActiveTab('resumen');
@@ -185,24 +227,29 @@
           {/* TAB 1: RESUMEN GENERAL */}
           {activeTab === 'resumen' && (
             <div class="space-y-4">
-              {/* Tarjeta de Saldos Totales */}
+              {/* Tarjeta de Saldos Totales y Patrimonio Neto */}
               <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 shadow-md space-y-3">
                 <div>
-                  <span class="text-xs text-slate-400 font-medium uppercase">Saldo Total en Débito (Dinero Real)</span>
-                  <div class="text-3xl font-extrabold text-white mt-0.5">
-                    ${totalSaldoDebito.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                  <span class="text-xs text-slate-400 font-medium uppercase tracking-wider">Patrimonio Neto Real (Débito - Deuda)</span>
+                  <div class={`text-3xl font-extrabold mt-0.5 ${patrimonioNetoReal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    ${patrimonioNetoReal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                   </div>
                 </div>
 
                 <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-700/60 text-xs">
                   <div>
-                    <span class="text-slate-400">Deuda Crédito Utilizado:</span>
-                    <div class="text-rose-400 font-bold text-sm">-${totalDeudaCredito.toLocaleString('es-MX', {minimumFractionDigits: 2})}</div>
+                    <span class="text-slate-400">Dinero en Débito:</span>
+                    <div class="text-white font-bold text-sm">${totalSaldoDebito.toLocaleString('es-MX', {minimumFractionDigits: 2})}</div>
                   </div>
                   <div>
-                    <span class="text-slate-400">Crédito Disponible Total:</span>
-                    <div class="text-sky-400 font-bold text-sm">${totalDisponibleCredito.toLocaleString('es-MX', {minimumFractionDigits: 2})}</div>
+                    <span class="text-slate-400">Deuda Crédito:</span>
+                    <div class="text-rose-400 font-bold text-sm">-${totalDeudaCredito.toLocaleString('es-MX', {minimumFractionDigits: 2})}</div>
                   </div>
+                </div>
+
+                <div class="pt-2 border-t border-slate-700/60 flex justify-between items-center text-xs">
+                  <span class="text-slate-400">Crédito Disponible Total:</span>
+                  <span class="text-sky-400 font-bold">${totalDisponibleCredito.toLocaleString('es-MX', {minimumFractionDigits: 2})}</span>
                 </div>
 
                 <div class="pt-2 border-t border-slate-700/60 flex justify-between items-center text-xs">
@@ -288,7 +335,7 @@
             </div>
           )}
 
-          {/* TAB 2: CAPTURA DE GASTO / INGRESO */}
+          {/* TAB 2: CAPTURA DE GASTO / INGRESO / TRASPASO */}
           {activeTab === 'captura' && (
             <form onSubmit={handleAgregarMovimiento} class="bg-slate-800 p-5 rounded-2xl border border-slate-700 space-y-4">
               <h2 class="text-sm font-bold text-slate-200">Registrar en Hoja de Captura</h2>
@@ -299,37 +346,63 @@
               </div>
 
               <div>
-                <label class="block text-xs text-slate-400 mb-1">Concepto / Descripción</label>
-                <input type="text" placeholder="Ej. Despensa, Pago TC Plata, Gasolina" value={concepto} onChange={e => setConcepto(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none" required />
-              </div>
-
-              <div class="grid grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-xs text-slate-400 mb-1">Tipo de Movimiento</label>
-                  <select value={tipo} onChange={e => setTipo(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
-                    <option value="Egreso">Egreso (-) [Gasto / Compra]</option>
-                    <option value="Ingreso">Ingreso (+) [Abono / Pago TC]</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-xs text-slate-400 mb-1">Cuenta Destino/Origen</label>
-                  <select value={cuentaSel} onChange={e => setCuentaSel(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
-                    {cuentas.map(c => <option key={c.id} value={c.nombre}>{c.nombre} ({c.tipoCuenta})</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label class="block text-xs text-slate-400 mb-1">Distribución 50/30/20</label>
-                <select value={distribucion} onChange={e => setDistribucion(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
-                  <option value="50% Necesidad">50% Necesidad (Fijo)</option>
-                  <option value="30% Deseo">30% Deseo (Gusto/Variable)</option>
-                  <option value="20% Ahorro/Inversión">20% Ahorro / Inversión</option>
+                <label class="block text-xs text-slate-400 mb-1">Tipo de Movimiento</label>
+                <select value={tipoMov} onChange={e => setTipoMov(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 font-semibold">
+                  <option value="Egreso">Egreso (-) [Gasto / Compra]</option>
+                  <option value="Ingreso">Ingreso (+) [Entrada / Abono]</option>
+                  <option value="Traspaso">Traspaso entre Cuentas (Transferencia)</option>
                 </select>
               </div>
 
+              {tipoMov === 'Traspaso' ? (
+                <div class="space-y-3 p-3 bg-slate-900/60 rounded-xl border border-slate-700/70">
+                  <div class="grid grid-cols-2 gap-2">
+                    <div>
+                      <label class="block text-xs text-rose-400 font-bold mb-1">Cuenta Origen (Sale)</label>
+                      <select value={cuentaSel} onChange={e => setCuentaSel(e.target.value)} class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-200">
+                        {cuentas.map(c => <option key={c.id} value={c.nombre}>{c.nombre} ({c.tipoCuenta})</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block text-xs text-emerald-400 font-bold mb-1">Cuenta Destino (Entra)</label>
+                      <select value={cuentaDestinoSel} onChange={e => setCuentaDestinoSel(e.target.value)} class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-200">
+                        {cuentas.map(c => <option key={c.id} value={c.nombre}>{c.nombre} ({c.tipoCuenta})</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label class="block text-xs text-slate-400 mb-1">Concepto Opcional</label>
+                    <input type="text" placeholder={`Traspaso: ${cuentaSel} ➔ ${cuentaDestinoSel}`} value={concepto} onChange={e => setConcepto(e.target.value)} class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200" />
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label class="block text-xs text-slate-400 mb-1">Concepto / Descripción</label>
+                    <input type="text" placeholder="Ej. Despensa, Gasolina, Supermercado" value={concepto} onChange={e => setConcepto(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none" required />
+                  </div>
+
+                  <div class="grid grid-cols-2 gap-3">
+                    <div>
+                      <label class="block text-xs text-slate-400 mb-1">Cuenta Destino/Origen</label>
+                      <select value={cuentaSel} onChange={e => setCuentaSel(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
+                        {cuentas.map(c => <option key={c.id} value={c.nombre}>{c.nombre} ({c.tipoCuenta})</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block text-xs text-slate-400 mb-1">Distribución 50/30/20</label>
+                      <select value={distribucion} onChange={e => setDistribucion(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
+                        <option value="50% Necesidad">50% Necesidad (Fijo)</option>
+                        <option value="30% Deseo">30% Deseo (Gusto/Variable)</option>
+                        <option value="20% Ahorro/Inversión">20% Ahorro / Inversión</option>
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
+
               <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl transition mt-2">
-                Guardar en Captura
+                {tipoMov === 'Traspaso' ? 'Ejecutar Traspaso entre Cuentas' : 'Guardar en Captura'}
               </button>
             </form>
           )}
@@ -338,15 +411,15 @@
           {activeTab === 'semanal' && (
             <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700 space-y-4">
               <h2 class="text-sm font-bold text-slate-200">Control de Gasto Semanal</h2>
-              <p class="text-xs text-slate-400">Egresos registrados en los últimos 7 días:</p>
+              <p class="text-xs text-slate-400">Egresos de consumo registrados (excluye traspasos):</p>
               <div class="text-2xl font-bold text-rose-400">
-                -${transacciones.filter(t => t.tipo === 'Egreso').reduce((a, b) => a + b.monto, 0).toLocaleString('es-MX', {minimumFractionDigits: 2})}
+                -${transacciones.filter(t => t.tipo === 'Egreso' && t.distribucion !== 'Traspaso entre cuentas').reduce((a, b) => a + b.monto, 0).toLocaleString('es-MX', {minimumFractionDigits: 2})}
               </div>
               <div class="space-y-2 pt-2">
-                {transacciones.filter(t => t.tipo === 'Egreso').map(t => (
+                {transacciones.filter(t => t.tipo === 'Egreso' && t.distribucion !== 'Traspaso entre cuentas').map(t => (
                   <div key={t.id} class="flex justify-between items-center text-xs p-2 bg-slate-900/50 rounded-lg">
                     <span>{t.concepto} ({t.cuenta})</span>
-                    <span class="font-bold text-rose-400">-${t.monto}</span>
+                    <span class="font-bold text-rose-400">-${t.monto.toLocaleString()}</span>
                   </div>
                 ))}
               </div>
