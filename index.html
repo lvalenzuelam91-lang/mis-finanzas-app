@@ -18,7 +18,7 @@
     function App() {
       const [activeTab, setActiveTab] = useState('resumen');
 
-      // 1. ESTADO DE CUENTAS
+      // 1. ESTADO DE CUENTAS (Con historial de tasas)
       const [cuentas, setCuentas] = useState(() => {
         const saved = localStorage.getItem('finanzas_cuentas');
         if (saved) {
@@ -26,15 +26,17 @@
           return parsed.map(c => ({
             tipoCuenta: 'Debito',
             limiteCredito: 0,
+            tasa: 0,
+            historialTasas: c.tasa > 0 ? [{ fechaInicio: '2026-01-01', tasa: c.tasa }] : [],
             ...c
           }));
         }
         return [
-          { id: 1, nombre: 'NU', tipoCuenta: 'Debito', saldoInicial: 15000, tasa: 14.50, limiteCredito: 0 },
-          { id: 2, nombre: 'CETES', tipoCuenta: 'Debito', saldoInicial: 25000, tasa: 11.00, limiteCredito: 0 },
-          { id: 3, nombre: 'STORI', tipoCuenta: 'Debito', saldoInicial: 8000, tasa: 15.00, limiteCredito: 0 },
-          { id: 4, nombre: 'PLATA CARD', tipoCuenta: 'Credito', saldoInicial: 2500, tasa: 0, limiteCredito: 25000 },
-          { id: 5, nombre: 'BBVA CREDITO', tipoCuenta: 'Credito', saldoInicial: 0, tasa: 0, limiteCredito: 45000 }
+          { id: 1, nombre: 'NU', tipoCuenta: 'Debito', saldoInicial: 15000, tasa: 14.50, limiteCredito: 0, historialTasas: [{ fechaInicio: '2026-01-01', tasa: 14.50 }] },
+          { id: 2, nombre: 'CETES', tipoCuenta: 'Debito', saldoInicial: 25000, tasa: 11.00, limiteCredito: 0, historialTasas: [{ fechaInicio: '2026-01-01', tasa: 11.00 }] },
+          { id: 3, nombre: 'STORI', tipoCuenta: 'Debito', saldoInicial: 8000, tasa: 15.00, limiteCredito: 0, historialTasas: [{ fechaInicio: '2026-01-01', tasa: 15.00 }] },
+          { id: 4, nombre: 'PLATA CARD', tipoCuenta: 'Credito', saldoInicial: 2500, tasa: 0, limiteCredito: 25000, historialTasas: [] },
+          { id: 5, nombre: 'BBVA CREDITO', tipoCuenta: 'Credito', saldoInicial: 0, tasa: 0, limiteCredito: 45000, historialTasas: [] }
         ];
       });
 
@@ -44,12 +46,11 @@
         return saved ? JSON.parse(saved) : [];
       });
 
-      // Última fecha de capitalización aplicada
       const [ultimaCapitalizacion, setUltimaCapitalizacion] = useState(() => {
-        return localStorage.getItem('finanzas_ultima_cap') || new Date().toISOString().split('T')[0];
+        return localStorage.getItem('finanzas_ultima_cap') || '2026-11-04';
       });
 
-      // Formulario Captura
+      // Estados para Formularios
       const [monto, setMonto] = useState('');
       const [concepto, setConcepto] = useState('');
       const [tipoMov, setTipoMov] = useState('Egreso');
@@ -57,14 +58,18 @@
       const [cuentaDestinoSel, setCuentaDestinoSel] = useState('');
       const [distribucion, setDistribucion] = useState('50% Necesidad');
 
-      // Formulario Nueva Cuenta
       const [nuevaCuentaNombre, setNuevaCuentaNombre] = useState('');
       const [nuevaCuentaTipo, setNuevaCuentaTipo] = useState('Debito');
       const [nuevaCuentaSaldo, setNuevaCuentaSaldo] = useState('');
       const [nuevaCuentaTasa, setNuevaCuentaTasa] = useState('');
       const [nuevaCuentaLimite, setNuevaCuentaLimite] = useState('');
 
-      // Guardar estados en localStorage
+      // Formulario para Agregar Cambio de Tasa Histórico
+      const [cuentaTasaEditId, setCuentaTasaEditId] = useState(null);
+      const [nuevaTasaFecha, setNuevaTasaFecha] = useState(new Date().toISOString().split('T')[0]);
+      const [nuevaTasaValor, setNuevaTasaValor] = useState('');
+
+      // Persistencia
       useEffect(() => {
         localStorage.setItem('finanzas_cuentas', JSON.stringify(cuentas));
       }, [cuentas]);
@@ -84,11 +89,24 @@
         }
       }, [cuentas]);
 
-      // --- OBTENER SALDO INDIVIDUAL ---
-      const obtenerSaldoCuenta = (nombreCuenta) => {
+      // --- OBTENER TASA VIGENTE PARA UNA FECHA ESPECÍFICA ---
+      const obtenerTasaVigente = (cuenta, fechaStr) => {
+        if (!cuenta.historialTasas || cuenta.historialTasas.length === 0) return cuenta.tasa || 0;
+        const ordenadas = [...cuenta.historialTasas].sort((a, b) => new Date(b.fechaInicio) - new Date(a.fechaInicio));
+        const vig = ordenadas.find(h => h.fechaInicio <= fechaStr);
+        return vig ? vig.tasa : (ordenadas[ordenadas.length - 1]?.tasa || 0);
+      };
+
+      // --- OBTENER SALDO HASTA UNA FECHA ---
+      const obtenerSaldoCuentaHastaFecha = (nombreCuenta, fechaLimiteStr = null) => {
         const c = cuentas.find(item => item.nombre === nombreCuenta);
         if (!c) return 0;
-        const movs = transacciones.filter(t => t.cuenta === nombreCuenta);
+        
+        let movs = transacciones.filter(t => t.cuenta === nombreCuenta);
+        if (fechaLimiteStr) {
+          movs = movs.filter(t => t.fecha <= fechaLimiteStr);
+        }
+
         const ingresos = movs.filter(t => t.tipo === 'Ingreso').reduce((a, b) => a + b.monto, 0);
         const egresos = movs.filter(t => t.tipo === 'Egreso').reduce((a, b) => a + b.monto, 0);
 
@@ -99,82 +117,103 @@
         }
       };
 
-      // --- MOTOR AUTOMÁTICO DE CAPITALIZACIÓN DIARIA ---
-      const aplicarCapitalizacionDiaria = () => {
-        const hoy = new Date().toISOString().split('T')[0];
-        if (ultimaCapitalizacion === hoy) return;
+      const obtenerSaldoCuenta = (nombreCuenta) => obtenerSaldoCuentaHastaFecha(nombreCuenta, null);
 
+      // --- MOTOR DE CAPITALIZACIÓN INTERÉS COMPUESTO CON TASA HISTÓRICA ---
+      const ejecutarCapitalizacionHasta = (fechaObjetivoStr) => {
         const fechaUltima = new Date(ultimaCapitalizacion);
-        const fechaActual = new Date(hoy);
-        const diferenciaDias = Math.floor((fechaActual - fechaUltima) / (1000 * 60 * 60 * 24));
+        const fechaTarget = new Date(fechaObjetivoStr);
+        const diffDias = Math.floor((fechaTarget - fechaUltima) / (1000 * 60 * 60 * 24));
 
-        if (diferenciaDias <= 0) return;
+        if (diffDias <= 0) return { abonados: 0, mensaje: 'Los rendimientos hasta el día de hoy ya están al día.' };
 
-        const nuevosMovimientos = [];
         let timestamp = Date.now();
+        let movsAcumulados = [...transacciones];
+        let contAbonos = 0;
 
-        cuentas.filter(c => c.tipoCuenta === 'Debito' && c.tasa > 0).forEach(c => {
-          let saldoActual = obtenerSaldoCuenta(c.nombre);
-          
-          for (let i = 1; i <= diferenciaDias; i++) {
-            const fechaCalculo = new Date(fechaUltima);
-            fechaCalculo.setDate(fechaCalculo.getDate() + i);
-            const fechaStr = fechaCalculo.toISOString().split('T')[0];
+        for (let i = 1; i <= diffDias; i++) {
+          const currDate = new Date(fechaUltima);
+          currDate.setDate(currDate.getDate() + i);
+          const fechaStr = currDate.toISOString().split('T')[0];
 
-            const rendimiento = parseFloat((saldoActual * (c.tasa / 100 / 365)).toFixed(2));
-            if (rendimiento > 0) {
-              nuevosMovimientos.push({
-                id: timestamp++,
-                fecha: fechaStr,
-                concepto: `Rendimiento Diario (${c.tasa}%)`,
-                monto: rendimiento,
-                tipo: 'Ingreso',
-                cuenta: c.nombre,
-                distribucion: '20% Ahorro/Inversión'
-              });
-              saldoActual += rendimiento;
+          cuentas.filter(c => c.tipoCuenta === 'Debito').forEach(c => {
+            const tasaVigente = obtenerTasaVigente(c, fechaStr);
+            if (tasaVigente <= 0) return;
+
+            // Verificar si ya existe abono de rendimiento para esta fecha y cuenta
+            const existe = movsAcumulados.some(t => t.cuenta === c.nombre && t.fecha === fechaStr && t.concepto.includes('Rendimiento Diario'));
+            if (existe) return;
+
+            // Obtener saldo exacto acumulado hasta el día de hoy antes del abono
+            const movsCuenta = movsAcumulados.filter(t => t.cuenta === c.nombre && t.fecha <= fechaStr);
+            const ing = movsCuenta.filter(t => t.tipo === 'Ingreso').reduce((a, b) => a + b.monto, 0);
+            const egr = movsCuenta.filter(t => t.tipo === 'Egreso').reduce((a, b) => a + b.monto, 0);
+            const saldoBase = c.saldoInicial + ing - egr;
+
+            if (saldoBase > 0) {
+              const rendimiento = parseFloat((saldoBase * (tasaVigente / 100 / 365)).toFixed(2));
+              if (rendimiento > 0) {
+                const nuevoMov = {
+                  id: timestamp++,
+                  fecha: fechaStr,
+                  concepto: `Rendimiento Diario (${tasaVigente}%)`,
+                  monto: rendimiento,
+                  tipo: 'Ingreso',
+                  cuenta: c.nombre,
+                  distribucion: '20% Ahorro/Inversión'
+                };
+                movsAcumulados.unshift(nuevoMov);
+                contAbonos++;
+              }
             }
-          }
-        });
-
-        if (nuevosMovimientos.length > 0) {
-          setTransacciones(prev => [...nuevosMovimientos, ...prev]);
+          });
         }
-        setUltimaCapitalizacion(hoy);
+
+        if (contAbonos > 0) {
+          setTransacciones(movsAcumulados);
+          setUltimaCapitalizacion(fechaObjetivoStr);
+          return { abonados: contAbonos, mensaje: `¡Se abonaron ${contAbonos} rendimientos automáticamente!` };
+        }
+
+        setUltimaCapitalizacion(fechaObjetivoStr);
+        return { abonados: 0, mensaje: 'No hay nuevos rendimientos pendientes por abonar para esta fecha.' };
       };
 
       useEffect(() => {
-        aplicarCapitalizacionDiaria();
+        const hoy = new Date().toISOString().split('T')[0];
+        ejecutarCapitalizacionHasta(hoy);
       }, []);
 
-      const handleForzarCapitalizacionHoy = () => {
+      const handleBotonCapitalizar = () => {
         const hoy = new Date().toISOString().split('T')[0];
-        const nuevosMovimientos = [];
-        let timestamp = Date.now();
+        const res = ejecutarCapitalizacionHasta(hoy);
+        alert(res.mensaje);
+      };
 
-        cuentas.filter(c => c.tipoCuenta === 'Debito' && c.tasa > 0).forEach(c => {
-          const saldoActual = obtenerSaldoCuenta(c.nombre);
-          const rendimiento = parseFloat((saldoActual * (c.tasa / 100 / 365)).toFixed(2));
-          if (rendimiento > 0) {
-            nuevosMovimientos.push({
-              id: timestamp++,
-              fecha: hoy,
-              concepto: `Rendimiento Diario (${c.tasa}%)`,
-              monto: rendimiento,
-              tipo: 'Ingreso',
-              cuenta: c.nombre,
-              distribucion: '20% Ahorro/Inversión'
-            });
+      // Agregar nueva tasa con fecha de inicio
+      const handleAgregarHistorialTasa = (e) => {
+        e.preventDefault();
+        const valorNum = parseFloat(nuevaTasaValor);
+        if (isNaN(valorNum) || !nuevaTasaFecha || !cuentaTasaEditId) return;
+
+        setCuentas(cuentas.map(c => {
+          if (c.id === cuentaTasaEditId) {
+            const historialActual = c.historialTasas || [];
+            // Filtrar si ya existe registro en esa fecha
+            const filtrado = historialActual.filter(h => h.fechaInicio !== nuevaTasaFecha);
+            const nuevoHistorial = [...filtrado, { fechaInicio: nuevaTasaFecha, tasa: valorNum }].sort((a, b) => new Date(a.fechaInicio) - new Date(b.fechaInicio));
+            return {
+              ...c,
+              tasa: valorNum,
+              historialTasas: nuevoHistorial
+            };
           }
-        });
+          return c;
+        }));
 
-        if (nuevosMovimientos.length > 0) {
-          setTransacciones(prev => [...nuevosMovimientos, ...prev]);
-          setUltimaCapitalizacion(hoy);
-          alert('¡Rendimientos de hoy abonados con éxito a tus cuentas!');
-        } else {
-          alert('No hay rendimientos por aplicar.');
-        }
+        setNuevaTasaValor('');
+        setCuentaTasaEditId(null);
+        alert('Tasa actualizada correctamente para la fecha seleccionada. Los cálculos se actualizarán en vivo.');
       };
 
       // Totales
@@ -188,12 +227,14 @@
       const totalLimiteCredito = cuentasCredito.reduce((acc, c) => acc + c.limiteCredito, 0);
       const totalDisponibleCredito = totalLimiteCredito - totalDeudaCredito;
 
+      const hoyStr = new Date().toISOString().split('T')[0];
       const rendimientoDiarioTotal = cuentasDebito.reduce((acc, c) => {
         const saldoActual = obtenerSaldoCuenta(c.nombre);
-        return acc + (saldoActual > 0 ? (saldoActual * (c.tasa / 100 / 365)) : 0);
+        const tasaHoy = obtenerTasaVigente(c, hoyStr);
+        return acc + (saldoActual > 0 ? (saldoActual * (tasaHoy / 100 / 365)) : 0);
       }, 0);
 
-      // ACCIONES
+      // ACCIONES MOVIMIENTOS
       const handleAgregarMovimiento = (e) => {
         e.preventDefault();
         const numMonto = parseFloat(monto);
@@ -259,13 +300,17 @@
         e.preventDefault();
         if (!nuevaCuentaNombre) return;
 
+        const tasaVal = parseFloat(nuevaCuentaTasa) || 0;
+        const fechaHoy = new Date().toISOString().split('T')[0];
+
         const nueva = {
           id: Date.now(),
           nombre: nuevaCuentaNombre.trim(),
           tipoCuenta: nuevaCuentaTipo,
           saldoInicial: parseFloat(nuevaCuentaSaldo) || 0,
-          tasa: nuevaCuentaTipo === 'Debito' ? (parseFloat(nuevaCuentaTasa) || 0) : 0,
-          limiteCredito: nuevaCuentaTipo === 'Credito' ? (parseFloat(nuevaCuentaLimite) || 0) : 0
+          tasa: nuevaCuentaTipo === 'Debito' ? tasaVal : 0,
+          limiteCredito: nuevaCuentaTipo === 'Credito' ? (parseFloat(nuevaCuentaLimite) || 0) : 0,
+          historialTasas: nuevaCuentaTipo === 'Debito' && tasaVal > 0 ? [{ fechaInicio: fechaHoy, tasa: tasaVal }] : []
         };
 
         setCuentas([...cuentas, nueva]);
@@ -273,10 +318,6 @@
         setNuevaCuentaSaldo('');
         setNuevaCuentaTasa('');
         setNuevaCuentaLimite('');
-      };
-
-      const handleEditarPropiedad = (id, propiedad, valor) => {
-        setCuentas(cuentas.map(c => c.id === id ? { ...c, [propiedad]: parseFloat(valor) || 0 } : c));
       };
 
       const handleEliminarCuenta = (id) => {
@@ -291,7 +332,7 @@
           <div class="flex justify-between items-center mb-5">
             <div>
               <h1 class="text-xl font-bold text-emerald-400">Finanzas Personales</h1>
-              <p class="text-xs text-slate-400">Control de Saldos y Rendimientos</p>
+              <p class="text-xs text-slate-400">Control de Saldos e Interés Compuesto</p>
             </div>
             <div class="text-right">
               <span class="text-xs text-slate-400">Resumen 2026</span>
@@ -340,7 +381,7 @@
                 </div>
 
                 <button 
-                  onClick={handleForzarCapitalizacionHoy}
+                  onClick={handleBotonCapitalizar}
                   class="w-full mt-2 bg-slate-700 hover:bg-slate-600 border border-emerald-500/30 text-emerald-300 font-bold py-2 rounded-xl text-xs flex justify-center items-center gap-1 transition">
                   ⚡ Capitalizar Rendimientos de Hoy
                 </button>
@@ -352,12 +393,13 @@
                 <div class="space-y-2">
                   {cuentasDebito.map(c => {
                     const saldoActual = obtenerSaldoCuenta(c.nombre);
-                    const rendDia = c.tasa > 0 ? (saldoActual * (c.tasa / 100 / 365)) : 0;
+                    const tasaActual = obtenerTasaVigente(c, hoyStr);
+                    const rendDia = tasaActual > 0 ? (saldoActual * (tasaActual / 100 / 365)) : 0;
                     return (
                       <div key={c.id} class="flex justify-between items-center text-sm p-2 rounded-lg bg-slate-900/60">
                         <div>
                           <span class="font-semibold text-slate-200">{c.nombre}</span>
-                          {c.tasa > 0 && <span class="text-xs text-emerald-400 ml-2">({c.tasa}%)</span>}
+                          {tasaActual > 0 && <span class="text-xs text-emerald-400 ml-2">({tasaActual}%)</span>}
                           {rendDia > 0 && <div class="text-[10px] text-slate-400">+${rendDia.toFixed(2)}/día</div>}
                         </div>
                         <span class="font-bold text-white">${saldoActual.toLocaleString('es-MX', {minimumFractionDigits: 2})}</span>
@@ -516,9 +558,30 @@
             </div>
           )}
 
-          {/* TAB 4: ADMINISTRACIÓN DE CUENTAS */}
+          {/* TAB 4: ADMINISTRACIÓN DE CUENTAS E HISTORIAL DE TASAS */}
           {activeTab === 'cuentas' && (
             <div class="space-y-4">
+              {/* Modal de edición de Tasa por Fecha */}
+              {cuentaTasaEditId && (
+                <form onSubmit={handleAgregarHistorialTasa} class="bg-slate-800 p-4 rounded-2xl border border-emerald-500/50 space-y-3">
+                  <div class="flex justify-between items-center">
+                    <h3 class="text-xs font-bold text-emerald-400 uppercase">Cambiar Tasa con Fecha de Inicio</h3>
+                    <button type="button" onClick={() => setCuentaTasaEditId(null)} class="text-slate-400 text-xs">✕ Cancelar</button>
+                  </div>
+                  <div>
+                    <label class="block text-[10px] text-slate-400 mb-1">Fecha de Inicio de Nueva Tasa</label>
+                    <input type="date" value={nuevaTasaFecha} onChange={e => setNuevaTasaFecha(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200" required />
+                  </div>
+                  <div>
+                    <label class="block text-[10px] text-slate-400 mb-1">Nueva Tasa Anual (%)</label>
+                    <input type="number" step="0.01" placeholder="Ej. 13.00" value={nuevaTasaValor} onChange={e => setNuevaTasaValor(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200" required />
+                  </div>
+                  <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-lg text-xs">
+                    Aplicar Tasa a partir de esta Fecha
+                  </button>
+                </form>
+              )}
+
               {/* Formulario Crear Cuenta */}
               <form onSubmit={handleAgregarCuenta} class="bg-slate-800 p-4 rounded-2xl border border-slate-700 space-y-3">
                 <h3 class="text-xs font-bold text-emerald-400 uppercase">Agregar Nueva Cuenta</h3>
@@ -548,40 +611,51 @@
                 </button>
               </form>
 
-              {/* Lista y Edición de Cuentas */}
+              {/* Lista de Cuentas e Historial de Tasas */}
               <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 space-y-3">
                 <h3 class="text-xs font-bold text-slate-400 uppercase">Cuentas Registradas</h3>
-                {cuentas.map(c => (
-                  <div key={c.id} class="p-3 bg-slate-900/60 rounded-xl space-y-2 border border-slate-800">
-                    <div class="flex justify-between items-center text-sm font-bold text-white">
-                      <span>{c.nombre} <span class="text-xs font-normal text-slate-400">({c.tipoCuenta})</span></span>
-                      <button onClick={() => handleEliminarCuenta(c.id)} class="text-rose-400 text-xs hover:underline">Eliminar</button>
-                    </div>
+                {cuentas.map(c => {
+                  const tasaActual = obtenerTasaVigente(c, hoyStr);
+                  return (
+                    <div key={c.id} class="p-3 bg-slate-900/60 rounded-xl space-y-2 border border-slate-800">
+                      <div class="flex justify-between items-center text-sm font-bold text-white">
+                        <span>{c.nombre} <span class="text-xs font-normal text-slate-400">({c.tipoCuenta})</span></span>
+                        <button onClick={() => handleEliminarCuenta(c.id)} class="text-rose-400 text-xs hover:underline">Eliminar</button>
+                      </div>
 
-                    {c.tipoCuenta === 'Debito' ? (
-                      <div class="flex items-center justify-between text-xs text-slate-400">
-                        <span>Tasa Anual (%):</span>
-                        <input 
-                          type="number" 
-                          step="0.01" 
-                          value={c.tasa} 
-                          onChange={e => handleEditarPropiedad(c.id, 'tasa', e.target.value)}
-                          class="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-right text-emerald-400 font-bold"
-                        />
-                      </div>
-                    ) : (
-                      <div class="flex items-center justify-between text-xs text-slate-400">
-                        <span>Límite de Crédito ($):</span>
-                        <input 
-                          type="number" 
-                          value={c.limiteCredito} 
-                          onChange={e => handleEditarPropiedad(c.id, 'limiteCredito', e.target.value)}
-                          class="w-24 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-right text-sky-400 font-bold"
-                        />
-                      </div>
-                    )}
-                  </div>
-                ))}
+                      {c.tipoCuenta === 'Debito' ? (
+                        <div class="space-y-1.5 pt-1 border-t border-slate-800">
+                          <div class="flex items-center justify-between text-xs text-slate-400">
+                            <span>Tasa Vigente Hoy: <strong class="text-emerald-400">{tasaActual}%</strong></span>
+                            <button 
+                              onClick={() => { setCuentaTasaEditId(c.id); setNuevaTasaValor(tasaActual); }}
+                              class="text-xs text-sky-400 hover:underline font-semibold">
+                              + Cambiar Tasa por Fecha
+                            </button>
+                          </div>
+                          
+                          {/* Historial de cambios */}
+                          {c.historialTasas && c.historialTasas.length > 0 && (
+                            <div class="text-[10px] text-slate-500 bg-slate-950/40 p-2 rounded-lg space-y-0.5">
+                              <span class="font-bold text-slate-400">Histórico de Tasas:</span>
+                              {c.historialTasas.map((h, idx) => (
+                                <div key={idx} class="flex justify-between">
+                                  <span>Desde {h.fechaInicio}:</span>
+                                  <span class="font-bold text-emerald-400">{h.tasa}% APY</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div class="flex items-center justify-between text-xs text-slate-400 pt-1 border-t border-slate-800">
+                          <span>Límite de Crédito ($):</span>
+                          <span class="font-bold text-sky-400">${c.limiteCredito.toLocaleString()}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
