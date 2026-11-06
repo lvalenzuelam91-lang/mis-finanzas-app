@@ -15,7 +15,6 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
-    // Catálogo base de Categorías y Distribuciones extraídas del Excel
     const CATALOGO_CATEGORIAS_DEFAULT = [
       {"categoria": "Renta", "distribucion": "Vivienda"},
       {"categoria": "Hipoteca", "distribucion": "Vivienda"},
@@ -66,13 +65,11 @@
     function App() {
       const [activeTab, setActiveTab] = useState('resumen');
 
-      // 1. ESTADO DE CATEGORÍAS (Base de datos alimentable)
       const [categoriasMap, setCategoriasMap] = useState(() => {
         const saved = localStorage.getItem('finanzas_categorias_map');
         return saved ? JSON.parse(saved) : CATALOGO_CATEGORIAS_DEFAULT;
       });
 
-      // 2. ESTADO DE CUENTAS
       const [cuentas, setCuentas] = useState(() => {
         const saved = localStorage.getItem('finanzas_cuentas');
         if (saved) {
@@ -94,7 +91,6 @@
         ];
       });
 
-      // 3. ESTADO DE TRANSACCIONES
       const [transacciones, setTransacciones] = useState(() => {
         const saved = localStorage.getItem('finanzas_transacciones');
         return saved ? JSON.parse(saved) : [];
@@ -104,7 +100,6 @@
         return localStorage.getItem('finanzas_ultima_cap') || '2026-11-04';
       });
 
-      // ESTADOS DE CAPTURA
       const hoyStr = new Date().toISOString().split('T')[0];
       const [fechaCaptura, setFechaCaptura] = useState(hoyStr);
       const [monto, setMonto] = useState('');
@@ -114,14 +109,12 @@
       const [cuentaSel, setCuentaSel] = useState('');
       const [cuentaDestinoSel, setCuentaDestinoSel] = useState('');
 
-      // Formulario Nueva Cuenta
       const [nuevaCuentaNombre, setNuevaCuentaNombre] = useState('');
       const [nuevaCuentaTipo, setNuevaCuentaTipo] = useState('Debito');
       const [nuevaCuentaSaldo, setNuevaCuentaSaldo] = useState('');
       const [nuevaCuentaTasa, setNuevaCuentaTasa] = useState('');
       const [nuevaCuentaLimite, setNuevaCuentaLimite] = useState('');
 
-      // Formulario Nueva Categoría
       const [nuevaCatNombre, setNuevaCatNombre] = useState('');
       const [nuevaCatDistribucion, setNuevaCatDistribucion] = useState('Alimentación');
 
@@ -129,7 +122,6 @@
       const [nuevaTasaFecha, setNuevaTasaFecha] = useState(hoyStr);
       const [nuevaTasaValor, setNuevaTasaValor] = useState('');
 
-      // Persistencia LocalStorage
       useEffect(() => {
         localStorage.setItem('finanzas_categorias_map', JSON.stringify(categoriasMap));
       }, [categoriasMap]);
@@ -153,13 +145,11 @@
         }
       }, [cuentas]);
 
-      // Obtener Distribución vinculada automáticamente a la Categoría
       const obtenerDistribucionDeCategoria = (nombreCat) => {
         const item = categoriasMap.find(c => c.categoria === nombreCat);
         return item ? item.distribucion : 'General';
       };
 
-      // DEPURACIÓN AUTOMÁTICA DE REGISTROS DUPLICADOS
       useEffect(() => {
         if (transacciones.length === 0) return;
         const vistas = new Set();
@@ -204,7 +194,6 @@
         }
       };
 
-      // Motor Capitalización Diaria
       const ejecutarCapitalizacionHasta = (fechaObjetivoStr) => {
         const fechaUltima = new Date(ultimaCapitalizacion);
         const fechaTarget = new Date(fechaObjetivoStr);
@@ -270,7 +259,50 @@
         alert(res.mensaje);
       };
 
-      // ACCIONES CAPTURA
+      // --- FUNCIONES DE RESPALDO (EXPORTAR / IMPORTAR) ---
+      const handleExportarDatos = () => {
+        const backupData = {
+          cuentas,
+          transacciones,
+          categoriasMap,
+          ultimaCapitalizacion,
+          fechaRespaldo: new Date().toISOString()
+        };
+        const jsonStr = JSON.stringify(backupData, null, 2);
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Respaldo_Finanzas_${hoyStr}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+
+      const handleImportarDatos = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const data = JSON.parse(event.target.result);
+            if (data.cuentas && data.transacciones) {
+              setCuentas(data.cuentas);
+              setTransacciones(data.transacciones);
+              if (data.categoriasMap) setCategoriasMap(data.categoriasMap);
+              if (data.ultimaCapitalizacion) setUltimaCapitalizacion(data.ultimaCapitalizacion);
+              alert('¡Datos importados con éxito!');
+              setActiveTab('resumen');
+            } else {
+              alert('El archivo no tiene el formato de respaldo correcto.');
+            }
+          } catch (err) {
+            alert('Error al leer el archivo de respaldo.');
+          }
+        };
+        reader.readAsText(file);
+      };
+
+      // ACCIONES
       const handleAgregarMovimiento = (e) => {
         e.preventDefault();
         const numMonto = parseFloat(monto);
@@ -546,7 +578,6 @@
             <form onSubmit={handleAgregarMovimiento} class="bg-slate-800 p-5 rounded-2xl border border-slate-700 space-y-4">
               <h2 class="text-sm font-bold text-slate-200">Registrar Movimiento</h2>
 
-              {/* 1. Fecha con opción a fechas anteriores */}
               <div>
                 <label class="block text-xs text-slate-400 mb-1">Fecha de Registro</label>
                 <input 
@@ -558,7 +589,6 @@
                 />
               </div>
 
-              {/* 2. Tipo de Movimiento */}
               <div>
                 <label class="block text-xs text-slate-400 mb-1">Tipo de Movimiento</label>
                 <select value={tipoMov} onChange={e => setTipoMov(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 font-semibold">
@@ -568,7 +598,6 @@
                 </select>
               </div>
 
-              {/* 3. Monto */}
               <div>
                 <label class="block text-xs text-slate-400 mb-1">Monto ($)</label>
                 <input type="number" step="0.01" placeholder="0.00" value={monto} onChange={e => setMonto(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-lg font-bold text-emerald-400 focus:outline-none" required />
@@ -597,13 +626,11 @@
                 </div>
               ) : (
                 <>
-                  {/* 4. Concepto */}
                   <div>
                     <label class="block text-xs text-slate-400 mb-1">Concepto / Descripción</label>
                     <input type="text" placeholder="Ej. Gasolina, Supermercado, Pago servicio" value={concepto} onChange={e => setConcepto(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none" required />
                   </div>
 
-                  {/* 5. Categoría y Distribución Automática */}
                   <div class="grid grid-cols-2 gap-3">
                     <div>
                       <label class="block text-xs text-slate-400 mb-1">Categoría</label>
@@ -621,7 +648,6 @@
                     </div>
                   </div>
 
-                  {/* 6. Cuenta */}
                   <div>
                     <label class="block text-xs text-slate-400 mb-1">Cuenta</label>
                     <select value={cuentaSel} onChange={e => setCuentaSel(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200">
@@ -659,10 +685,29 @@
             </div>
           )}
 
-          {/* TAB 4: CONFIGURACIÓN Y CATÁLOGOS */}
+          {/* TAB 4: CONFIGURACIÓN Y CATÁLOGOS Y RESPALDO */}
           {activeTab === 'cuentas' && (
             <div class="space-y-4">
-              {/* Formulario Alimentar Nuevas Categorías */}
+              {/* SECCIÓN RESPALDO (EXPORTAR / IMPORTAR) */}
+              <div class="bg-slate-800 p-4 rounded-2xl border border-sky-500/40 space-y-3">
+                <h3 class="text-xs font-bold text-sky-400 uppercase">📦 Respaldo y Sincronización</h3>
+                <p class="text-[11px] text-slate-400">Exporta tus datos desde Safari para cargarlos en la App web independiente.</p>
+                
+                <div class="grid grid-cols-2 gap-2">
+                  <button 
+                    onClick={handleExportarDatos}
+                    class="bg-sky-600 hover:bg-sky-500 text-white font-bold py-2 rounded-lg text-xs flex justify-center items-center gap-1">
+                    📥 Exportar Datos
+                  </button>
+
+                  <label class="bg-slate-700 hover:bg-slate-600 text-emerald-400 font-bold py-2 rounded-lg text-xs text-center cursor-pointer flex justify-center items-center">
+                    📤 Importar Datos
+                    <input type="file" accept=".json" onChange={handleImportarDatos} class="hidden" />
+                  </label>
+                </div>
+              </div>
+
+              {/* Formulario Crear Categoría */}
               <form onSubmit={handleAgregarCategoriaNueva} class="bg-slate-800 p-4 rounded-2xl border border-emerald-500/40 space-y-3">
                 <h3 class="text-xs font-bold text-emerald-400 uppercase">+ Crear / Alimentar Nueva Categoría</h3>
                 <div class="grid grid-cols-2 gap-2">
