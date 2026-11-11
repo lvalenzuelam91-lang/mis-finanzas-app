@@ -15,6 +15,15 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
+    // Obtener fecha local en formato YYYY-MM-DD sin desfase UTC
+    const getFechaLocalHoy = () => {
+      const d = new Date();
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
     const CATALOGO_CATEGORIAS_DEFAULT = [
       {"categoria": "Renta", "distribucion": "Vivienda"},
       {"categoria": "Hipoteca", "distribucion": "Vivienda"},
@@ -89,13 +98,11 @@
     function App() {
       const [activeTab, setActiveTab] = useState('resumen');
 
-      // Ingreso Base Semanal para Presupuesto
       const [ingresoBaseSemanal, setIngresoBaseSemanal] = useState(() => {
         const saved = localStorage.getItem('finanzas_ingreso_base_semanal');
         return saved ? parseFloat(saved) : 10000;
       });
 
-      // Metas Porcentuales por Distribución
       const [distribucionMetas, setDistribucionMetas] = useState(() => {
         const saved = localStorage.getItem('finanzas_distribucion_metas');
         return saved ? JSON.parse(saved) : DISTRIBUCION_METAS_DEFAULT;
@@ -136,7 +143,7 @@
         return localStorage.getItem('finanzas_ultima_cap') || '2026-11-04';
       });
 
-      const hoyStr = new Date().toISOString().split('T')[0];
+      const hoyStr = getFechaLocalHoy();
       const [fechaCaptura, setFechaCaptura] = useState(hoyStr);
       const [monto, setMonto] = useState('');
       const [concepto, setConcepto] = useState('');
@@ -146,6 +153,7 @@
       const [cuentaDestinoSel, setCuentaDestinoSel] = useState('');
 
       const [semanaOffset, setSemanaOffset] = useState(0);
+      const [distribucionSeleccionada, setDistribucionSeleccionada] = useState(null);
 
       const [nuevaCuentaNombre, setNuevaCuentaNombre] = useState('');
       const [nuevaCuentaTipo, setNuevaCuentaTipo] = useState('Debito');
@@ -193,18 +201,25 @@
         return item ? item.distribucion : 'General';
       };
 
-      // DEPURACIÓN DUPLICADOS
+      // LIMPIADOR AUTOMÁTICO DE DUPLICADOS Y RENDIMIENTOS DE FECHAS FUTURAS
       useEffect(() => {
         if (transacciones.length === 0) return;
+        const hoy = getFechaLocalHoy();
         const vistas = new Set();
-        let huboDuplicados = false;
+        let huboCambios = false;
 
         const transaccionesLimpias = transacciones.filter(t => {
+          // Eliminar cualquier rendimiento generado en fechas futuras
+          if (t.concepto && t.concepto.includes('Rendimiento Diario') && t.fecha > hoy) {
+            huboCambios = true;
+            return false;
+          }
+
           const esRendimiento = t.concepto && t.concepto.includes('Rendimiento Diario');
           if (esRendimiento) {
             const claveUnica = `${t.cuenta}_${t.fecha}`;
             if (vistas.has(claveUnica)) {
-              huboDuplicados = true;
+              huboCambios = true;
               return false;
             }
             vistas.add(claveUnica);
@@ -212,7 +227,7 @@
           return true;
         });
 
-        if (huboDuplicados) {
+        if (huboCambios) {
           setTransacciones(transaccionesLimpias);
         }
       }, []);
@@ -238,19 +253,39 @@
         }
       };
 
+      // MOTOR DE CAPITALIZACIÓN DIARIA (CORREGIDO HASTA HOY FECHA LOCAL)
       const ejecutarCapitalizacionHasta = (fechaObjetivoStr) => {
-        const fechaUltima = new Date(ultimaCapitalizacion);
-        const fechaTarget = new Date(fechaObjetivoStr);
-        const diffDias = Math.floor((fechaTarget - fechaUltima) / (1000 * 60 * 60 * 24));
+        const hoy = getFechaLocalHoy();
+        const targetStr = fechaObjetivoStr > hoy ? hoy : fechaObjetivoStr;
+
+        const parseDate = (s) => {
+          const parts = s.split('-');
+          return new Date(parts[0], parts[1] - 1, parts[2]);
+        };
+
+        const fechaUltima = parseDate(ultimaCapitalizacion);
+        const fechaTarget = parseDate(targetStr);
+        const diffDias = Math.round((fechaTarget - fechaUltima) / (1000 * 60 * 60 * 24));
+
+        if (diffDias <= 0) {
+          setUltimaCapitalizacion(targetStr);
+          return { abonados: 0, mensaje: 'Los rendimientos de hoy ya están al día.' };
+        }
 
         let timestamp = Date.now();
         let movsAcumulados = [...transacciones];
         let contAbonos = 0;
 
-        for (let i = 1; i <= (diffDias > 0 ? diffDias : 1); i++) {
+        for (let i = 1; i <= diffDias; i++) {
           const currDate = new Date(fechaUltima);
-          currDate.setDate(currDate.getDate() + (diffDias > 0 ? i : 0));
-          const fechaStr = currDate.toISOString().split('T')[0];
+          currDate.setDate(currDate.getDate() + i);
+
+          const year = currDate.getFullYear();
+          const month = String(currDate.getMonth() + 1).padStart(2, '0');
+          const day = String(currDate.getDate()).padStart(2, '0');
+          const fechaStr = `${year}-${month}-${day}`;
+
+          if (fechaStr > hoy) break; // Garantizar no abonar en el futuro
 
           cuentas.filter(c => c.tipoCuenta === 'Debito').forEach(c => {
             const tasaVigente = obtenerTasaVigente(c, fechaStr);
@@ -277,7 +312,7 @@
                   categoria: 'Intereses',
                   distribucion: 'Ahorro e inversión'
                 };
-                movsAcumulados.unshift(nuevoMov);
+                movsAcumulados.push(nuevoMov);
                 contAbonos++;
               }
             }
@@ -286,11 +321,11 @@
 
         if (contAbonos > 0) {
           setTransacciones(movsAcumulados);
-          setUltimaCapitalizacion(fechaObjetivoStr);
+          setUltimaCapitalizacion(targetStr);
           return { abonados: contAbonos, mensaje: `¡Se abonaron ${contAbonos} rendimientos correctamente!` };
         }
 
-        setUltimaCapitalizacion(fechaObjetivoStr);
+        setUltimaCapitalizacion(targetStr);
         return { abonados: 0, mensaje: 'Los rendimientos de hoy ya están al día.' };
       };
 
@@ -350,13 +385,13 @@
         reader.readAsText(file);
       };
 
-      // CORRECCIÓN EXACTA DE FECHAS DE VIERNES A JUEVES
+      // FECHAS DE VIERNES A JUEVES LOCAL
       const obtenerRangoSemana = (offsetSemanas = 0) => {
-        const d = new Date();
+        const parts = hoyStr.split('-');
+        const d = new Date(parts[0], parts[1] - 1, parts[2]);
         d.setDate(d.getDate() + (offsetSemanas * 7));
         const day = d.getDay(); // 0: Dom, 1: Lun, 2: Mar, 3: Mié, 4: Jue, 5: Vie, 6: Sáb
         
-        // Días a restar hasta el Viernes anterior (día 5 de JS)
         const diffViernes = (day >= 5) ? (day - 5) : (day + 2);
         
         const fechaViernes = new Date(d);
@@ -377,8 +412,16 @@
 
       const rangoSemanaActual = obtenerRangoSemana(semanaOffset);
 
-      // Egresos reales de la semana (excluye traspasos)
-      const egresosSemana = transacciones.filter(t => 
+      // ORDENAR SIEMPRE POR FECHA DE EJECUCIÓN DEL MOVIMIENTO (DESCENDENTE)
+      const transaccionesOrdenadas = [...transacciones].sort((a, b) => {
+        if (b.fecha === a.fecha) {
+          return b.id - a.id;
+        }
+        return b.fecha.localeCompare(a.fecha);
+      });
+
+      // Egresos reales de la semana
+      const egresosSemana = transaccionesOrdenadas.filter(t => 
         t.tipo === 'Egreso' && 
         t.distribucion !== 'Movimiento' &&
         t.fecha >= rangoSemanaActual.inicio &&
@@ -396,13 +439,11 @@
         distribucionesResumenEgresos[distKey] = (distribucionesResumenEgresos[distKey] || 0) + t.monto;
       });
 
-      // Remanente para Ahorro e Inversión Automático
       const remanenteAhorro = Math.max(0, ingresoBaseSemanal - totalGastoSemanal);
 
       const listaDistribucionesSemana = DISTRIBUCIONES_LISTA.map(distName => {
         let gastoReal = distribucionesResumenEgresos[distName] || 0;
         
-        // Si es Ahorro e Inversión, se le suma automáticamente el remanente no gastado
         if (distName === 'Ahorro e inversión') {
           gastoReal += remanenteAhorro;
         }
@@ -459,7 +500,7 @@
             distribucion: 'Movimiento'
           };
 
-          setTransacciones([movEgreso, movIngreso, ...transacciones]);
+          setTransacciones([...transacciones, movEgreso, movIngreso]);
         } else {
           if (!concepto) return;
           const distribucionAsignada = obtenerDistribucionDeCategoria(categoriaSel);
@@ -474,7 +515,7 @@
             categoria: categoriaSel,
             distribucion: distribucionAsignada
           };
-          setTransacciones([nuevo, ...transacciones]);
+          setTransacciones([...transacciones, nuevo]);
         }
 
         setMonto('');
@@ -533,7 +574,6 @@
         }
       };
 
-      // Editar porcentaje meta de distribución
       const handleCambiarMetaDistribucion = (distKey, nuevoValor) => {
         const valNum = parseFloat(nuevoValor) || 0;
         setDistribucionMetas({
@@ -558,6 +598,9 @@
         const tasaHoy = obtenerTasaVigente(c, hoyStr);
         return acc + (saldoActual > 0 ? (saldoActual * (tasaHoy / 100 / 365)) : 0);
       }, 0);
+
+      // Gastos de la distribución seleccionada para ver su detalle
+      const gastosDeDistribucionSel = egresosSemana.filter(t => t.distribucion === distribucionSeleccionada);
 
       return (
         <div class="max-w-md mx-auto p-4 pb-24">
@@ -672,19 +715,19 @@
                 </div>
               )}
 
-              {/* Últimos Movimientos */}
+              {/* Últimos Movimientos Ordenados por Fecha de Ejecución */}
               <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700">
-                <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Hoja de Captura (Últimos Movimientos)</h2>
-                {transacciones.length === 0 ? (
+                <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Hoja de Captura (Ordenados por Fecha de Ejecución)</h2>
+                {transaccionesOrdenadas.length === 0 ? (
                   <p class="text-xs text-slate-500 text-center py-4">No hay movimientos registrados.</p>
                 ) : (
                   <div class="space-y-2">
-                    {transacciones.map(t => (
+                    {transaccionesOrdenadas.map(t => (
                       <div key={t.id} class="flex justify-between items-center text-sm p-2.5 rounded-lg bg-slate-900/60 border border-slate-800">
                         <div class="flex-1 pr-2">
                           <div class="font-semibold text-slate-200">{t.concepto}</div>
                           <div class="text-xs text-slate-400">{t.cuenta} • <span class="text-emerald-400 font-medium">{t.categoria || 'Gasto'}</span> • <span class="text-slate-500">{t.distribucion}</span></div>
-                          <div class="text-[10px] text-slate-500">{t.fecha}</div>
+                          <div class="text-[10px] text-sky-400 font-medium">Ejecutado: {t.fecha}</div>
                         </div>
                         <div class="flex items-center space-x-3">
                           <span class={`font-bold ${t.tipo === 'Ingreso' ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -706,7 +749,7 @@
               <h2 class="text-sm font-bold text-slate-200">Registrar Movimiento</h2>
 
               <div>
-                <label class="block text-xs text-slate-400 mb-1">Fecha de Registro</label>
+                <label class="block text-xs text-slate-400 mb-1">Fecha de Ejecución del Movimiento</label>
                 <input 
                   type="date" 
                   value={fechaCaptura} 
@@ -790,14 +833,14 @@
             </form>
           )}
 
-          {/* TAB 3: CONTROL DE GASTO SEMANAL (CORREGIDO VIERNES A JUEVES + METAS DE REFERENCIA) */}
+          {/* TAB 3: CONTROL DE GASTO SEMANAL (FILTRADO INTERACTIVO POR DISTRIBUCIÓN) */}
           {activeTab === 'semanal' && (
             <div class="space-y-4">
               {/* Navegador de Semanas */}
               <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 space-y-3">
                 <div class="flex justify-between items-center">
                   <button 
-                    onClick={() => setSemanaOffset(semanaOffset - 1)} 
+                    onClick={() => { setSemanaOffset(semanaOffset - 1); setDistribucionSeleccionada(null); }} 
                     class="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-200">
                     ◀ Semana Anterior
                   </button>
@@ -805,7 +848,7 @@
                     {semanaOffset === 0 ? 'Semana En Curso' : `Semana (${semanaOffset})`}
                   </span>
                   <button 
-                    onClick={() => setSemanaOffset(semanaOffset + 1)} 
+                    onClick={() => { setSemanaOffset(semanaOffset + 1); setDistribucionSeleccionada(null); }} 
                     class="bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-200"
                     disabled={semanaOffset >= 0}>
                     Siguiente ▶
@@ -831,56 +874,69 @@
                 </div>
               </div>
 
-              {/* Desglose por Distribución con Comparativa Meta vs Real */}
+              {/* Desglose por Distribución con clic para ver lista de gastos */}
               <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 space-y-3">
-                <h3 class="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                  Desglose y Comparativa vs Meta
-                </h3>
+                <div class="flex justify-between items-center">
+                  <h3 class="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                    Distribuciones de Gasto (Toca para ver detalle)
+                  </h3>
+                  {distribucionSeleccionada && (
+                    <button onClick={() => setDistribucionSeleccionada(null)} class="text-[10px] text-sky-400 hover:underline">
+                      Ver Todos
+                    </button>
+                  )}
+                </div>
 
                 <div class="space-y-3">
-                  {listaDistribucionesSemana.map((d, idx) => (
-                    <div key={idx} class="p-3 bg-slate-900/60 rounded-xl space-y-2 border border-slate-800">
-                      <div class="flex justify-between items-start text-xs">
-                        <div>
-                          <span class="font-bold text-slate-200 block">{d.distribucion}</span>
-                          <span class="text-[10px] text-slate-400">
-                            Meta: {d.pctMeta}% (${d.montoMeta.toLocaleString('es-MX')})
-                          </span>
+                  {listaDistribucionesSemana.map((d, idx) => {
+                    const esSeleccionada = distribucionSeleccionada === d.distribucion;
+                    return (
+                      <div 
+                        key={idx} 
+                        onClick={() => setDistribucionSeleccionada(esSeleccionada ? null : d.distribucion)}
+                        class={`p-3 rounded-xl space-y-2 border transition cursor-pointer ${esSeleccionada ? 'bg-slate-900 border-emerald-500 shadow-md ring-1 ring-emerald-500' : 'bg-slate-900/60 border-slate-800 hover:border-slate-700'}`}>
+                        <div class="flex justify-between items-start text-xs">
+                          <div>
+                            <span class="font-bold text-slate-200 block">{d.distribucion}</span>
+                            <span class="text-[10px] text-slate-400">
+                              Meta: {d.pctMeta}% (${d.montoMeta.toLocaleString('es-MX')})
+                            </span>
+                          </div>
+                          <div class="text-right">
+                            <span class={`font-bold ${d.superado ? 'text-rose-400' : 'text-emerald-400'}`}>
+                              ${d.montoReal.toLocaleString('es-MX', {minimumFractionDigits: 2})}
+                            </span>
+                            <span class="text-slate-400 ml-1 font-bold text-[11px]">({d.pctReal}%)</span>
+                          </div>
                         </div>
-                        <div class="text-right">
-                          <span class={`font-bold ${d.superado ? 'text-rose-400' : 'text-emerald-400'}`}>
-                            ${d.montoReal.toLocaleString('es-MX', {minimumFractionDigits: 2})}
-                          </span>
-                          <span class="text-slate-400 ml-1 font-bold text-[11px]">({d.pctReal}%)</span>
-                        </div>
-                      </div>
 
-                      {/* Barra Visual comparativa */}
-                      <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden flex">
-                        <div 
-                          class={`${d.superado ? 'bg-rose-500' : 'bg-emerald-500'} h-full rounded-full transition-all duration-300`}
-                          style={{ width: `${Math.min(100, d.pctReal)}%` }}>
+                        <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden flex">
+                          <div 
+                            class={`${d.superado ? 'bg-rose-500' : 'bg-emerald-500'} h-full rounded-full transition-all duration-300`}
+                            style={{ width: `${Math.min(100, d.pctReal)}%` }}>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* Detalle Egresos */}
+              {/* Detalle de Movimientos Filtrados por Distribución */}
               <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 space-y-3">
                 <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                  Egresos Detallados de esta Semana
+                  {distribucionSeleccionada ? `Gastos de: ${distribucionSeleccionada}` : 'Todos los Egresos de esta Semana'}
                 </h3>
-                {egresosSemana.length === 0 ? (
-                  <p class="text-xs text-slate-500 text-center py-2">Sin egresos registrados.</p>
+
+                {(distribucionSeleccionada ? gastosDeDistribucionSel : egresosSemana).length === 0 ? (
+                  <p class="text-xs text-slate-500 text-center py-2">No hay gastos registrados para este filtro.</p>
                 ) : (
                   <div class="space-y-2">
-                    {egresosSemana.map(t => (
-                      <div key={t.id} class="flex justify-between items-center text-xs p-2 bg-slate-900/50 rounded-lg">
+                    {(distribucionSeleccionada ? gastosDeDistribucionSel : egresosSemana).map(t => (
+                      <div key={t.id} class="flex justify-between items-center text-xs p-2.5 bg-slate-900/60 rounded-lg border border-slate-800">
                         <div>
                           <div class="font-semibold text-slate-200">{t.concepto} ({t.cuenta})</div>
-                          <div class="text-[10px] text-slate-400">{t.distribucion} • {t.categoria} • {t.fecha}</div>
+                          <div class="text-[10px] text-slate-400"><span class="text-emerald-400">{t.categoria}</span> • <span class="text-sky-400">{t.fecha}</span></div>
                         </div>
                         <span class="font-bold text-rose-400">-${t.monto.toLocaleString()}</span>
                       </div>
@@ -891,10 +947,9 @@
             </div>
           )}
 
-          {/* TAB 4: CONFIGURACIÓN, INGRESO BASE Y METAS PORCENTUALES */}
+          {/* TAB 4: CONFIGURACIÓN */}
           {activeTab === 'cuentas' && (
             <div class="space-y-4">
-              {/* CONFIGURACIÓN DE INGRESO BASE Y METAS PORCENTUALES */}
               <div class="bg-slate-800 p-4 rounded-2xl border border-emerald-500/50 space-y-3">
                 <h3 class="text-xs font-bold text-emerald-400 uppercase">⚙️ Configuración de Presupuesto Semanal</h3>
                 
