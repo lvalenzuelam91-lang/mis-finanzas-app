@@ -155,12 +155,19 @@
       const [semanaOffset, setSemanaOffset] = useState(0);
       const [distribucionSeleccionada, setDistribucionSeleccionada] = useState(null);
 
+      // Estados para crear nueva cuenta
       const [nuevaCuentaNombre, setNuevaCuentaNombre] = useState('');
       const [nuevaCuentaTipo, setNuevaCuentaTipo] = useState('Debito');
       const [nuevaCuentaSaldo, setNuevaCuentaSaldo] = useState('');
       const [nuevaCuentaTasa, setNuevaCuentaTasa] = useState('');
       const [nuevaCuentaLimite, setNuevaCuentaLimite] = useState('');
 
+      // Estados para editar tasa por fecha de inicio
+      const [cuentaTasaEditId, setCuentaTasaEditId] = useState(null);
+      const [nuevaTasaFecha, setNuevaTasaFecha] = useState(hoyStr);
+      const [nuevaTasaValor, setNuevaTasaValor] = useState('');
+
+      // Estados para crear nueva categoría
       const [nuevaCatNombre, setNuevaCatNombre] = useState('');
       const [nuevaCatDistribucion, setNuevaCatDistribucion] = useState('Alimentación');
 
@@ -209,7 +216,6 @@
         let huboCambios = false;
 
         const transaccionesLimpias = transacciones.filter(t => {
-          // Eliminar cualquier rendimiento generado en fechas futuras
           if (t.concepto && t.concepto.includes('Rendimiento Diario') && t.fecha > hoy) {
             huboCambios = true;
             return false;
@@ -253,7 +259,7 @@
         }
       };
 
-      // MOTOR DE CAPITALIZACIÓN DIARIA (CORREGIDO HASTA HOY FECHA LOCAL)
+      // MOTOR DE CAPITALIZACIÓN DIARIA
       const ejecutarCapitalizacionHasta = (fechaObjetivoStr) => {
         const hoy = getFechaLocalHoy();
         const targetStr = fechaObjetivoStr > hoy ? hoy : fechaObjetivoStr;
@@ -285,7 +291,7 @@
           const day = String(currDate.getDate()).padStart(2, '0');
           const fechaStr = `${year}-${month}-${day}`;
 
-          if (fechaStr > hoy) break; // Garantizar no abonar en el futuro
+          if (fechaStr > hoy) break;
 
           cuentas.filter(c => c.tipoCuenta === 'Debito').forEach(c => {
             const tasaVigente = obtenerTasaVigente(c, fechaStr);
@@ -336,6 +342,32 @@
       const handleBotonCapitalizar = () => {
         const res = ejecutarCapitalizacionHasta(hoyStr);
         alert(res.mensaje);
+      };
+
+      // AGREGAR CAMBIO DE TASA HISTÓRICO POR FECHA
+      const handleAgregarHistorialTasa = (e) => {
+        e.preventDefault();
+        const valorNum = parseFloat(nuevaTasaValor);
+        if (isNaN(valorNum) || !nuevaTasaFecha || !cuentaTasaEditId) return;
+
+        setCuentas(cuentas.map(c => {
+          if (c.id === cuentaTasaEditId) {
+            const historialActual = c.historialTasas || [];
+            const filtrado = historialActual.filter(h => h.fechaInicio !== nuevaTasaFecha);
+            const nuevoHistorial = [...filtrado, { fechaInicio: nuevaTasaFecha, tasa: valorNum }]
+              .sort((a, b) => new Date(a.fechaInicio) - new Date(b.fechaInicio));
+            return {
+              ...c,
+              tasa: valorNum,
+              historialTasas: nuevoHistorial
+            };
+          }
+          return c;
+        }));
+
+        setNuevaTasaValor('');
+        setCuentaTasaEditId(null);
+        alert('Tasa actualizada correctamente para la fecha seleccionada.');
       };
 
       // RESPALDO
@@ -390,7 +422,7 @@
         const parts = hoyStr.split('-');
         const d = new Date(parts[0], parts[1] - 1, parts[2]);
         d.setDate(d.getDate() + (offsetSemanas * 7));
-        const day = d.getDay(); // 0: Dom, 1: Lun, 2: Mar, 3: Mié, 4: Jue, 5: Vie, 6: Sáb
+        const day = d.getDay();
         
         const diffViernes = (day >= 5) ? (day - 5) : (day + 2);
         
@@ -412,7 +444,7 @@
 
       const rangoSemanaActual = obtenerRangoSemana(semanaOffset);
 
-      // ORDENAR SIEMPRE POR FECHA DE EJECUCIÓN DEL MOVIMIENTO (DESCENDENTE)
+      // ORDENAR POR FECHA DE EJECUCIÓN DEL MOVIMIENTO (DESCENDENTE)
       const transaccionesOrdenadas = [...transacciones].sort((a, b) => {
         if (b.fecha === a.fecha) {
           return b.id - a.id;
@@ -420,7 +452,6 @@
         return b.fecha.localeCompare(a.fecha);
       });
 
-      // Egresos reales de la semana
       const egresosSemana = transaccionesOrdenadas.filter(t => 
         t.tipo === 'Egreso' && 
         t.distribucion !== 'Movimiento' &&
@@ -430,7 +461,6 @@
 
       const totalGastoSemanal = egresosSemana.reduce((acc, t) => acc + t.monto, 0);
 
-      // Agrupación por Distribución
       const distribucionesResumenEgresos = {};
       DISTRIBUCIONES_LISTA.forEach(d => distribucionesResumenEgresos[d] = 0);
 
@@ -599,7 +629,6 @@
         return acc + (saldoActual > 0 ? (saldoActual * (tasaHoy / 100 / 365)) : 0);
       }, 0);
 
-      // Gastos de la distribución seleccionada para ver su detalle
       const gastosDeDistribucionSel = egresosSemana.filter(t => t.distribucion === distribucionSeleccionada);
 
       return (
@@ -715,7 +744,7 @@
                 </div>
               )}
 
-              {/* Últimos Movimientos Ordenados por Fecha de Ejecución */}
+              {/* Últimos Movimientos */}
               <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700">
                 <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Hoja de Captura (Ordenados por Fecha de Ejecución)</h2>
                 {transaccionesOrdenadas.length === 0 ? (
@@ -833,7 +862,7 @@
             </form>
           )}
 
-          {/* TAB 3: CONTROL DE GASTO SEMANAL (FILTRADO INTERACTIVO POR DISTRIBUCIÓN) */}
+          {/* TAB 3: CONTROL DE GASTO SEMANAL */}
           {activeTab === 'semanal' && (
             <div class="space-y-4">
               {/* Navegador de Semanas */}
@@ -950,6 +979,28 @@
           {/* TAB 4: CONFIGURACIÓN */}
           {activeTab === 'cuentas' && (
             <div class="space-y-4">
+              {/* MODAL DE EDICIÓN DE TASA POR FECHA DE INICIO */}
+              {cuentaTasaEditId && (
+                <form onSubmit={handleAgregarHistorialTasa} class="bg-slate-800 p-4 rounded-2xl border border-emerald-500/50 space-y-3">
+                  <div class="flex justify-between items-center">
+                    <h3 class="text-xs font-bold text-emerald-400 uppercase">Cambiar Tasa con Fecha de Inicio</h3>
+                    <button type="button" onClick={() => setCuentaTasaEditId(null)} class="text-slate-400 text-xs">✕ Cancelar</button>
+                  </div>
+                  <div>
+                    <label class="block text-[10px] text-slate-400 mb-1">Fecha de Inicio de Nueva Tasa</label>
+                    <input type="date" value={nuevaTasaFecha} onChange={e => setNuevaTasaFecha(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200" required />
+                  </div>
+                  <div>
+                    <label class="block text-[10px] text-slate-400 mb-1">Nueva Tasa Anual (%)</label>
+                    <input type="number" step="0.01" placeholder="Ej. 13.00" value={nuevaTasaValor} onChange={e => setNuevaTasaValor(e.target.value)} class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200" required />
+                  </div>
+                  <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-lg text-xs">
+                    Aplicar Tasa a partir de esta Fecha
+                  </button>
+                </form>
+              )}
+
+              {/* CONFIGURACIÓN DE PRESUPUESTO SEMANAL */}
               <div class="bg-slate-800 p-4 rounded-2xl border border-emerald-500/50 space-y-3">
                 <h3 class="text-xs font-bold text-emerald-400 uppercase">⚙️ Configuración de Presupuesto Semanal</h3>
                 
@@ -1042,17 +1093,50 @@
                 </button>
               </form>
 
-              {/* Lista Cuentas */}
+              {/* Lista de Cuentas con Historial de Tasas */}
               <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700 space-y-3">
                 <h3 class="text-xs font-bold text-slate-400 uppercase">Cuentas Registradas</h3>
-                {cuentas.map(c => (
-                  <div key={c.id} class="p-3 bg-slate-900/60 rounded-xl space-y-2 border border-slate-800">
-                    <div class="flex justify-between items-center text-sm font-bold text-white">
-                      <span>{c.nombre} <span class="text-xs font-normal text-slate-400">({c.tipoCuenta})</span></span>
-                      <button onClick={() => handleEliminarCuenta(c.id)} class="text-rose-400 text-xs hover:underline">Eliminar</button>
+                {cuentas.map(c => {
+                  const tasaActual = obtenerTasaVigente(c, hoyStr);
+                  return (
+                    <div key={c.id} class="p-3 bg-slate-900/60 rounded-xl space-y-2 border border-slate-800">
+                      <div class="flex justify-between items-center text-sm font-bold text-white">
+                        <span>{c.nombre} <span class="text-xs font-normal text-slate-400">({c.tipoCuenta})</span></span>
+                        <button onClick={() => handleEliminarCuenta(c.id)} class="text-rose-400 text-xs hover:underline">Eliminar</button>
+                      </div>
+
+                      {c.tipoCuenta === 'Debito' ? (
+                        <div class="space-y-1.5 pt-1 border-t border-slate-800">
+                          <div class="flex items-center justify-between text-xs text-slate-400">
+                            <span>Tasa Vigente Hoy: <strong class="text-emerald-400">{tasaActual}%</strong></span>
+                            <button 
+                              onClick={() => { setCuentaTasaEditId(c.id); setNuevaTasaValor(tasaActual); }}
+                              class="text-xs text-sky-400 hover:underline font-semibold">
+                              + Cambiar Tasa por Fecha
+                            </button>
+                          </div>
+
+                          {c.historialTasas && c.historialTasas.length > 0 && (
+                            <div class="text-[10px] text-slate-500 bg-slate-950/40 p-2 rounded-lg space-y-0.5">
+                              <span class="font-bold text-slate-400">Histórico de Tasas:</span>
+                              {c.historialTasas.map((h, idx) => (
+                                <div key={idx} class="flex justify-between">
+                                  <span>Desde {h.fechaInicio}:</span>
+                                  <span class="font-bold text-emerald-400">{h.tasa}% APY</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div class="flex items-center justify-between text-xs text-slate-400 pt-1 border-t border-slate-800">
+                          <span>Límite de Crédito ($):</span>
+                          <span class="font-bold text-sky-400">${c.limiteCredito.toLocaleString()}</span>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
